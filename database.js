@@ -104,19 +104,36 @@ async function getReadBooks() {
 // Ottieni statistiche
 async function getStats() {
     try {
-        const [totalQuery, readQuery, authorsQuery, genresQuery, ratingsQuery] = await Promise.all([
+        const [totalQuery, readQuery, topAuthorsQuery, topGenresQuery, ratingsQuery] = await Promise.all([
             pool.query('SELECT COUNT(*) as total FROM read_books'),
             pool.query('SELECT COUNT(*) as read FROM read_books'),
-            pool.query('SELECT COUNT(DISTINCT authors) as distinct_authors FROM read_books'),
-            pool.query('SELECT COUNT(DISTINCT tags) as distinct_genres FROM read_books'),
+            pool.query(`
+                SELECT authors, COUNT(*) as count
+                FROM read_books
+                GROUP BY authors
+                ORDER BY count DESC
+                LIMIT 10
+            `),
+            pool.query(`
+                SELECT tags, COUNT(*) as count
+                FROM read_books
+                WHERE tags IS NOT NULL
+                GROUP BY tags
+                ORDER BY count DESC
+                LIMIT 10
+            `),
             pool.query('SELECT rating, COUNT(*) as count FROM read_books GROUP BY rating')
         ]);
 
         const totalBooks = totalQuery.rows[0].total;
         const readBooks = readQuery.rows[0].read;
         const percentageRead = totalBooks > 0 ? Math.round((readBooks / totalBooks) * 100) : 0;
-        const distinctAuthors = authorsQuery.rows[0].distinct_authors;
-        const distinctGenres = genresQuery.rows[0].distinct_genres;
+
+        // Converti gli autori in formato [nome, conteggio]
+        const topAuthors = topAuthorsQuery.rows.map(row => [row.authors, row.count]);
+
+        // Converti i generi in formato [nome, conteggio]
+        const topGenres = topGenresQuery.rows.map(row => [row.tags, row.count]);
 
         const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
         ratingsQuery.rows.forEach(row => {
@@ -129,8 +146,8 @@ async function getStats() {
             total_books: totalBooks,
             read_books: readBooks,
             percentage_read: percentageRead,
-            distinct_authors: distinctAuthors,
-            distinct_genres: distinctGenres,
+            top_authors: topAuthors,
+            top_genres: topGenres,
             rating_distribution: ratingDistribution
         };
     } catch (error) {

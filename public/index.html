@@ -223,7 +223,7 @@
     </div>
 
     <footer class="footer">
-        <p>Calibre Dashboard • Connesso a gdecil.ooguy.com:8090</p>
+        <p>Calibre Dashboard • Connesso a ${CALIBRE_URL}</p>
     </footer>
 
     <script>
@@ -236,7 +236,7 @@
         async function loadData() {
             if (isLoading) return;
             isLoading = true;
-            
+
             try {
                 const [statsResponse, booksResponse] = await Promise.all([
                     fetch('/api/stats', { cache: 'no-store' }),
@@ -246,11 +246,26 @@
                 const stats = await statsResponse.json();
                 allBooks = await booksResponse.json();
 
+                // Debug: log the data to console
+                console.log('Stats data:', stats);
+                console.log('Books data:', allBooks);
+
+                // Add safety checks for undefined data
+                if (!stats || typeof stats !== 'object') {
+                    throw new Error('Invalid stats data format');
+                }
+
+                // Ensure required fields exist
+                stats.top_authors = stats.top_authors || [];
+                stats.top_genres = stats.top_genres || [];
+                stats.rating_distribution = stats.rating_distribution || {1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
+
                 renderStats(stats);
                 renderCharts(stats);
                 renderBooks(allBooks);
 
             } catch (error) {
+                console.error('Detailed error:', error);
                 document.getElementById('statsGrid').innerHTML = `
                     <div style="text-align: center; padding: 3rem; color: #dc2626;">
                         ❌ Errore nel caricamento dei dati: ${error.message}
@@ -261,26 +276,26 @@
             }
         }
 
-        function renderStats(stats) {
-            document.getElementById('statsGrid').innerHTML = `
-                <div class="stat-card">
-                    <div class="stat-value">${stats.total_books}</div>
-                    <div class="stat-label">Totale Libri nella Libreria</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${stats.read_books}</div>
-                    <div class="stat-label">Libri Letti</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${stats.percentage_read}%</div>
-                    <div class="stat-label">Percentuale Completata</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${stats.top_authors.length}</div>
-                    <div class="stat-label">Autori Distinti</div>
-                </div>
-            `;
-        }
+function renderStats(stats) {
+    document.getElementById('statsGrid').innerHTML = `
+        <div class="stat-card">
+            <div class="stat-value">${stats.total_books}</div>
+            <div class="stat-label">Totale Libri nella Libreria</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${stats.read_books}</div>
+            <div class="stat-label">Libri Letti</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${stats.percentage_read}%</div>
+            <div class="stat-label">Percentuale Completata</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">${(stats.top_authors && stats.top_authors.length) || 0}</div>
+            <div class="stat-label">Autori Distinti</div>
+        </div>
+    `;
+}
 
         function renderCharts(stats) {
             // Distruggi grafico esistente se presente
@@ -288,62 +303,107 @@
             if (authorsChartInstance) authorsChartInstance.destroy();
             if (genresChartInstance) genresChartInstance.destroy();
 
-            ratingChartInstance = new Chart(document.getElementById('ratingChart'), {
-                type: 'bar',
-                data: {
-                    labels: ['1 Stella', '2 Stelle', '3 Stelle', '4 Stelle', '5 Stelle'],
-                    datasets: [{
-                        label: 'Numero Libri',
-                        data: Object.values(stats.rating_distribution),
-                        backgroundColor: [
-                            '#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'
-                        ],
-                        borderRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: { legend: { display: false } },
-                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-                }
-            });
+            try {
+                // Grafico distribuzione valutazioni (sempre visibile)
+                console.log('Creating rating chart with data:', Object.values(stats.rating_distribution));
+                ratingChartInstance = new Chart(document.getElementById('ratingChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['1 Stella', '2 Stelle', '3 Stelle', '4 Stelle', '5 Stelle'],
+                        datasets: [{
+                            label: 'Numero Libri',
+                            data: Object.values(stats.rating_distribution),
+                            backgroundColor: [
+                                '#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'
+                            ],
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                    }
+                });
+            } catch (error) {
+                console.error('Error creating rating chart:', error);
+                document.getElementById('ratingChart').parentElement.innerHTML = `
+                    <div style="text-align: center; padding: 2rem; color: #dc2626;">
+                        ❌ Errore nel creare il grafico delle valutazioni
+                    </div>
+                `;
+            }
 
-            authorsChartInstance = new Chart(document.getElementById('authorsChart'), {
-                type: 'bar',
-                data: {
-                    labels: stats.top_authors.map(a => a[0]),
-                    datasets: [{
-                        label: 'Libri Letti',
-                        data: stats.top_authors.map(a => a[1]),
-                        backgroundColor: '#667eea',
-                        borderRadius: 6
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    plugins: { legend: { display: false } },
-                    scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+            // Sicurezza: assicurati che top_authors esista e sia un array
+            const topAuthors = stats.top_authors || [];
+            // Crea grafico autori solo se ci sono dati
+            if (topAuthors.length > 0) {
+                try {
+                    console.log('Creating authors chart with data:', topAuthors);
+                    authorsChartInstance = new Chart(document.getElementById('authorsChart'), {
+                        type: 'bar',
+                        data: {
+                            labels: topAuthors.map(a => a[0]),
+                            datasets: [{
+                                label: 'Libri Letti',
+                                data: topAuthors.map(a => a[1]),
+                                backgroundColor: '#667eea',
+                                borderRadius: 6
+                            }]
+                        },
+                        options: {
+                            indexAxis: 'y',
+                            responsive: true,
+                            plugins: { legend: { display: false } },
+                            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error creating authors chart:', error);
+                    document.getElementById('authorsChart').parentElement.innerHTML = `
+                        <div style="text-align: center; padding: 2rem; color: #dc2626;">
+                            ❌ Errore nel creare il grafico degli autori
+                        </div>
+                    `;
                 }
-            });
+            } else {
+                console.log('No authors data to display');
+            }
 
-            genresChartInstance = new Chart(document.getElementById('genresChart'), {
-                type: 'doughnut',
-                data: {
-                    labels: stats.top_genres.map(g => g[0]),
-                    datasets: [{
-                        data: stats.top_genres.map(g => g[1]),
-                        backgroundColor: [
-                            '#667eea', '#764ba2', '#06b6d4', '#10b981', '#f59e0b',
-                            '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
-                        ]
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: { legend: { position: 'right' } }
+            // Sicurezza: assicurati che top_genres esista e sia un array
+            const topGenres = stats.top_genres || [];
+            // Crea grafico generi solo se ci sono dati
+            if (topGenres.length > 0) {
+                try {
+                    console.log('Creating genres chart with data:', topGenres);
+                    genresChartInstance = new Chart(document.getElementById('genresChart'), {
+                        type: 'doughnut',
+                        data: {
+                            labels: topGenres.map(g => g[0]),
+                            datasets: [{
+                                data: topGenres.map(g => g[1]),
+                                backgroundColor: [
+                                    '#667eea', '#764ba2', '#06b6d4', '#10b981', '#f59e0b',
+                                    '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: { legend: { position: 'right' } }
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error creating genres chart:', error);
+                    document.getElementById('genresChart').parentElement.innerHTML = `
+                        <div style="text-align: center; padding: 2rem; color: #dc2626;">
+                            ❌ Errore nel creare il grafico dei generi
+                        </div>
+                    `;
                 }
-            });
+            } else {
+                console.log('No genres data to display');
+            }
         }
 
         function renderBooks(books) {
