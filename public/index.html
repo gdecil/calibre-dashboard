@@ -209,8 +209,13 @@
         </div>
 
         <div class="books-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <h3>📖 Libri Letti</h3>
-            <input type="text" class="search-box" id="searchInput" placeholder="Cerca libri per titolo o autore...">
+            <button id="refreshBtn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; cursor: pointer; font-weight: 500;">
+                🔄 Aggiorna Libreria
+            </button>
+        </div>
+        <input type="text" class="search-box" id="searchInput" placeholder="Cerca libri per titolo o autore...">
             <div class="books-list" id="booksList">
                 <div class="loading">Caricamento libri...</div>
             </div>
@@ -354,6 +359,15 @@
                 </div>
             `).join('');
         }
+
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            document.getElementById('refreshBtn').disabled = true;
+            document.getElementById('refreshBtn').textContent = '🔄 Aggiornamento...';
+            loadData().finally(() => {
+                document.getElementById('refreshBtn').disabled = false;
+                document.getElementById('refreshBtn').textContent = '🔄 Aggiorna Libreria';
+            });
+        });
 
         document.addEventListener('DOMContentLoaded', loadData);
     </script>
