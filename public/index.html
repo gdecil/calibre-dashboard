@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calibre Dashboard - Libreria Personale</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #f0f2f5;
+            color: #1a1a1a;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.2rem;
+            font-weight: 600;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            color: #64748b;
+            font-size: 0.95rem;
+            margin-top: 0.5rem;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .chart-card h3 {
+            margin-bottom: 1rem;
+            color: #334155;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .books-section {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .books-section h3 {
+            margin-bottom: 1rem;
+            color: #334155;
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .search-box {
+            width: 100%;
+            padding: 0.8rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .books-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .book-item {
+            padding: 1rem;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background-color 0.2s;
+        }
+
+        .book-item:hover {
+            background-color: #f8fafc;
+        }
+
+        .book-title {
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .book-authors {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #64748b;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #e2e8f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>📚 Calibre Dashboard</h1>
+        <p>La tua libreria personale con statistiche di lettura</p>
+    </header>
+
+    <div class="container">
+        <div class="stats-grid" id="statsGrid">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Caricamento dati...</p>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h3>📊 Distribuzione Valutazioni</h3>
+                <canvas id="ratingChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>👤 Top 10 Autori</h3>
+                <canvas id="authorsChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>🏷️ Top Generi</h3>
+                <canvas id="genresChart"></canvas>
+            </div>
+        </div>
+
+        <div class="books-section">
+            <h3>📖 Libri Letti</h3>
+            <input type="text" class="search-box" id="searchInput" placeholder="Cerca libri per titolo o autore...">
+            <div class="books-list" id="booksList">
+                <div class="loading">Caricamento libri...</div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <p>Calibre Dashboard • Connesso a gdecil.ooguy.com:8090</p>
+    </footer>
+
+    <script>
+        let allBooks = [];
+
+        async function loadData() {
+            try {
+                const [statsResponse, booksResponse] = await Promise.all([
+                    fetch('/api/stats'),
+                    fetch('/api/books/read')
+                ]);
+
+                const stats = await statsResponse.json();
+                allBooks = await booksResponse.json();
+
+                renderStats(stats);
+                renderCharts(stats);
+                renderBooks(allBooks);
+
+                document.getElementById('searchInput').addEventListener('input', (e) => {
+                    const query = e.target.value.toLowerCase();
+                    const filtered = allBooks.filter(book => 
+                        book.title.toLowerCase().includes(query) ||
+                        (book.authors && book.authors.some(a => a.toLowerCase().includes(query)))
+                    );
+                    renderBooks(filtered);
+                });
+
+            } catch (error) {
+                document.getElementById('statsGrid').innerHTML = `
+                    <div style="text-align: center; padding: 3rem; color: #dc2626;">
+                        ❌ Errore nel caricamento dei dati: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function renderStats(stats) {
+            document.getElementById('statsGrid').innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${stats.total_books}</div>
+                    <div class="stat-label">Totale Libri nella Libreria</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.read_books}</div>
+                    <div class="stat-label">Libri Letti</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.percentage_read}%</div>
+                    <div class="stat-label">Percentuale Completata</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.top_authors.length}</div>
+                    <div class="stat-label">Autori Distinti</div>
+                </div>
+            `;
+        }
+
+        function renderCharts(stats) {
+            new Chart(document.getElementById('ratingChart'), {
+                type: 'bar',
+                data: {
+                    labels: ['1 Stella', '2 Stelle', '3 Stelle', '4 Stelle', '5 Stelle'],
+                    datasets: [{
+                        label: 'Numero Libri',
+                        data: Object.values(stats.rating_distribution),
+                        backgroundColor: [
+                            '#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'
+                        ],
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+
+            new Chart(document.getElementById('authorsChart'), {
+                type: 'bar',
+                data: {
+                    labels: stats.top_authors.map(a => a[0]),
+                    datasets: [{
+                        label: 'Libri Letti',
+                        data: stats.top_authors.map(a => a[1]),
+                        backgroundColor: '#667eea',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+
+            new Chart(document.getElementById('genresChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: stats.top_genres.map(g => g[0]),
+                    datasets: [{
+                        data: stats.top_genres.map(g => g[1]),
+                        backgroundColor: [
+                            '#667eea', '#764ba2', '#06b6d4', '#10b981', '#f59e0b',
+                            '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'right' } }
+                }
+            });
+        }
+
+        function renderBooks(books) {
+            if (books.length === 0) {
+                document.getElementById('booksList').innerHTML = '<div style="text-align: center; padding: 2rem; color: #64748b;">Nessun libro trovato</div>';
+                return;
+            }
+
+            document.getElementById('booksList').innerHTML = books.map(book => `
+                <div class="book-item">
+                    <div>
+                        <div class="book-title">${book.title}</div>
+                        <div class="book-authors">${book.authors ? book.authors.join(', ') : 'Autore sconosciuto'}</div>
+                    </div>
+                    <div style="color: #64748b;">
+                        ${book.user_metadata && book.user_metadata['#rating'] ? '⭐'.repeat(Math.round(book.user_metadata['#rating'].value)) : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
