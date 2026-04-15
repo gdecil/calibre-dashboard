@@ -2,60 +2,44 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const path = require('path');
+const { CronJob } = require('node-cron');
+const { initializeDatabase, getReadBooks, getStats, searchBooks } = require('./database');
+const { startSyncWorker } = require('./sync-worker');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const readline = require('readline');
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-let CALIBRE_URL = process.env.CALIBRE_URL || process.argv[2];
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
+// Inizializza database e worker di sincronizzazione
+initializeDatabase().then(() => {
+    console.log('✅ Database inizializzato');
+    startSyncWorker();
+}).catch(error => {
+    console.error('❌ Errore inizializzazione:', error.message);
+    process.exit(1);
+});
+
 app.get('/api/books', async (req, res) => {
   try {
-    const response = await axios.get(`${CALIBRE_URL}/interface-data/books-init`, {
-      timeout: 10000,
-      headers: { 'Accept': 'application/json' }
-    });
-    res.json(response.data);
+    const books = await getReadBooks();
+    res.json(books);
   } catch (error) {
     console.error('Errore API /api/books:', error.message);
     res.status(500).json({ 
-      error: 'Errore nel recupero libri da Calibre', 
-      details: error.message,
-      code: error.code
+      error: 'Errore nel recupero libri dal database', 
+      details: error.message
     });
   }
 });
 
 app.get('/api/books/read', async (req, res) => {
   try {
-    const response = await axios.get(`${CALIBRE_URL}/interface-data/books-init`, {
-      timeout: 10000,
-      headers: { 'Accept': 'application/json' }
-    });
-    
-    if (!response.data || !response.data.books) {
-      return res.json([]);
-    }
-    
-    const books = Object.values(response.data.books);
-    
-    const readBooks = books.filter(book => {
-      return book && 
-             book.user_metadata && 
-             book.user_metadata['#read'] && 
-             book.user_metadata['#read'].value === true;
-    });
-    
-    res.json(readBooks);
+    const books = await getReadBooks();
+    res.json(books);
   } catch (error) {
     console.error('Server Calibre non raggiungibile:', error.message);
     // Modalità Demo: restituisci dati di esempio quando server non disponibile
@@ -72,72 +56,8 @@ app.get('/api/books/read', async (req, res) => {
 
 app.get('/api/stats', async (req, res) => {
   try {
-    const response = await axios.get(`${CALIBRE_URL}/interface-data/books-init`, {
-      timeout: 10000,
-      headers: { 'Accept': 'application/json' }
-    });
-    
-    if (!response.data || !response.data.books) {
-      return res.json({
-        total_books: 0,
-        read_books: 0,
-        percentage_read: 0,
-        top_authors: [],
-        top_genres: [],
-        rating_distribution: { 1:0, 2:0, 3:0, 4:0, 5:0 }
-      });
-    }
-    
-    const books = Object.values(response.data.books);
-    
-    const readBooks = books.filter(book => {
-      return book.user_metadata && 
-             book.user_metadata['#read'] && 
-             book.user_metadata['#read'].value === true;
-    });
-    
-    const authorCounts = {};
-    const genreCounts = {};
-    const ratingCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    
-    readBooks.forEach(book => {
-      if (book.authors) {
-        book.authors.forEach(author => {
-          authorCounts[author] = (authorCounts[author] || 0) + 1;
-        });
-      }
-      
-      if (book.tags) {
-        book.tags.forEach(tag => {
-          genreCounts[tag] = (genreCounts[tag] || 0) + 1;
-        });
-      }
-      
-      if (book.user_metadata && book.user_metadata['#rating']) {
-        const rating = Math.round(book.user_metadata['#rating'].value);
-        if (rating >= 1 && rating <=5) {
-          ratingCounts[rating]++;
-        }
-      }
-    });
-    
-    const topAuthors = Object.entries(authorCounts)
-      .sort((a,b) => b[1] - a[1])
-      .slice(0, 10);
-      
-    const topGenres = Object.entries(genreCounts)
-      .sort((a,b) => b[1] - a[1])
-      .slice(0, 10);
-    
-    res.json({
-      total_books: books.length,
-      read_books: readBooks.length,
-      percentage_read: Math.round((readBooks.length / books.length) * 100),
-      top_authors: topAuthors,
-      top_genres: topGenres,
-      rating_distribution: ratingCounts
-    });
-    
+    const stats = await getStats();
+    res.json(stats);
   } catch (error) {
     console.error('Server Calibre non raggiungibile:', error.message);
     // Modalità Demo: statistiche di esempio
@@ -163,20 +83,64 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Endpoint per trigger manuale sync
+app.post('/api/sync', async (req, res) => {
+  try {
+    const { fetchBooksFromCalibre, updateReadBooks } = require('./sync-worker');
+    const books = await fetchBooksFromCalibre();
+    const readBooks = books.filter(book => 
+        book.user_metadata && 
+        book.user_metadata['#read'] && 
+        book.user_metadata['#read'].value === true
+    );
+    await updateReadBooks(readBooks);
+    res.json({ success: true, updated_books: readBooks.length });
+  } catch (error) {
+    console.error('❌ Errore sync manuale:', error.message);
+    res.status(500).json({ 
+      error: 'Errore durante sincronizzazione manuale', 
+      details: error.message 
+    });
+  }
+});
+
+// Endpoint ricerca libri
+app.get('/api/books/search', async (req, res) => {
+  try {
+    const query = req.query.q;
+    if (!query) {
+      return res.json([]);
+    }
+    const results = await searchBooks(query);
+    res.json(results);
+  } catch (error) {
+    console.error('❌ Errore ricerca libri:', error.message);
+    res.status(500).json({ 
+      error: 'Errore durante ricerca libri', 
+      details: error.message 
+    });
+  }
+});
+
 function startServer() {
   app.listen(PORT, () => {
     console.log('');
     console.log(`✅ Server Calibre Dashboard avviato su http://localhost:${PORT}`);
-    console.log(`🔗 Connesso a server Calibre: ${CALIBRE_URL}`);
+    console.log(`🔗 Connesso a server Calibre: ${process.env.CALIBRE_URL || 'http://localhost:8090'}`);
     console.log('');
   });
 }
 
-if (!CALIBRE_URL) {
+if (!process.env.CALIBRE_URL) {
   console.log('📚 Calibre Dashboard');
   console.log('====================');
+  const readline = require('readline');
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
   rl.question('Inserisci l\'indirizzo del tuo server Calibre (es. http://localhost:8090): ', (answer) => {
-    CALIBRE_URL = answer.trim();
+    process.env.CALIBRE_URL = answer.trim();
     rl.close();
     startServer();
   });

@@ -228,12 +228,19 @@
 
     <script>
         let allBooks = [];
+        let ratingChartInstance = null;
+        let authorsChartInstance = null;
+        let genresChartInstance = null;
+        let isLoading = false;
 
         async function loadData() {
+            if (isLoading) return;
+            isLoading = true;
+            
             try {
                 const [statsResponse, booksResponse] = await Promise.all([
-                    fetch('/api/stats'),
-                    fetch('/api/books/read')
+                    fetch('/api/stats', { cache: 'no-store' }),
+                    fetch('/api/books/read', { cache: 'no-store' })
                 ]);
 
                 const stats = await statsResponse.json();
@@ -243,21 +250,14 @@
                 renderCharts(stats);
                 renderBooks(allBooks);
 
-                document.getElementById('searchInput').addEventListener('input', (e) => {
-                    const query = e.target.value.toLowerCase();
-                    const filtered = allBooks.filter(book => 
-                        book.title.toLowerCase().includes(query) ||
-                        (book.authors && book.authors.some(a => a.toLowerCase().includes(query)))
-                    );
-                    renderBooks(filtered);
-                });
-
             } catch (error) {
                 document.getElementById('statsGrid').innerHTML = `
                     <div style="text-align: center; padding: 3rem; color: #dc2626;">
                         ❌ Errore nel caricamento dei dati: ${error.message}
                     </div>
                 `;
+            } finally {
+                isLoading = false;
             }
         }
 
@@ -283,7 +283,12 @@
         }
 
         function renderCharts(stats) {
-            new Chart(document.getElementById('ratingChart'), {
+            // Distruggi grafico esistente se presente
+            if (ratingChartInstance) ratingChartInstance.destroy();
+            if (authorsChartInstance) authorsChartInstance.destroy();
+            if (genresChartInstance) genresChartInstance.destroy();
+
+            ratingChartInstance = new Chart(document.getElementById('ratingChart'), {
                 type: 'bar',
                 data: {
                     labels: ['1 Stella', '2 Stelle', '3 Stelle', '4 Stelle', '5 Stelle'],
@@ -303,7 +308,7 @@
                 }
             });
 
-            new Chart(document.getElementById('authorsChart'), {
+            authorsChartInstance = new Chart(document.getElementById('authorsChart'), {
                 type: 'bar',
                 data: {
                     labels: stats.top_authors.map(a => a[0]),
@@ -322,7 +327,7 @@
                 }
             });
 
-            new Chart(document.getElementById('genresChart'), {
+            genresChartInstance = new Chart(document.getElementById('genresChart'), {
                 type: 'doughnut',
                 data: {
                     labels: stats.top_genres.map(g => g[0]),
@@ -360,7 +365,18 @@
             `).join('');
         }
 
+        // Event listener ricerca - creato UNA SOLA VOLTA all'avvio
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = allBooks.filter(book => 
+                book.title.toLowerCase().includes(query) ||
+                (book.authors && book.authors.some(a => a.toLowerCase().includes(query)))
+            );
+            renderBooks(filtered);
+        });
+
         document.getElementById('refreshBtn').addEventListener('click', () => {
+            if (isLoading) return;
             document.getElementById('refreshBtn').disabled = true;
             document.getElementById('refreshBtn').textContent = '🔄 Aggiornamento...';
             loadData().finally(() => {
