@@ -7,7 +7,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "db:dump": "node db-dump.cjs",
     "db:restore": "node db-restore.cjs",
-    "db:list": "dir backups /b /o:-d"
+    "db:list": "dir backups /b /o:-d",
+    "books:enrich": "node scripts/enrich-books.js",
+    "books:enrich-all": "node scripts/enrich-books.js 100"
   },
   "keywords": [],
   "author": "",
