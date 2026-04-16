@@ -258,11 +258,6 @@ async function startSyncWorker() {
         console.log('🚀 Avvio worker di sincronizzazione...');
 
         // Validazione variabili d'ambiente
-        if (!process.env.CALIBRE_URL) {
-            console.error('❌ Variabile d\'ambiente CALIBRE_URL non configurata');
-            process.exit(1);
-        }
-
         if (!process.env.DATABASE_URL) {
             console.error('❌ Variabile d\'ambiente DATABASE_URL non configurata');
             process.exit(1);
@@ -276,27 +271,9 @@ async function startSyncWorker() {
             process.exit(1);
         }
 
-        // Test connessione Calibre server
-        console.log('🔌 Test connessione server Calibre...');
-        try {
-            // Prova con autenticazione tramite parametri URL (metodo comune per Calibre)
-            const authUrl = `${CALIBRE_URL}/opds?username=${encodeURIComponent(CALIBRE_USERNAME)}&password=${encodeURIComponent(CALIBRE_PASSWORD)}`;
-            await axios.get(authUrl, {
-                timeout: 5000,
-                headers: { 'Accept': 'application/atom+xml' }
-            });
-            console.log('✅ Server Calibre raggiungibile');
-        } catch (error) {
-            console.error('❌ Server Calibre non raggiungibile:', error.message);
-            if (error.response) {
-                console.error('Status code:', error.response.status);
-                console.error('Response data:', error.response.data);
-            }
-            process.exit(1);
-        }
-
-        console.log(`⏰ Sincronizzazione programmata: ${process.env.SYNC_CRON_SCHEDULE || 'ogni giorno alle 23:00'}`);
+        // La connessione al server Calibre viene effettuata solo durante la sincronizzazione
         console.log('✅ Worker avviato con successo');
+        console.log('📚 La connessione al server Calibre verrà effettuata solo durante gli aggiornamenti del database');
     } catch (error) {
         console.error('❌ Errore avvio worker:', error.message);
         process.exit(1);

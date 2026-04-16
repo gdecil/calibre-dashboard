@@ -14,14 +14,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Inizializza database e worker di sincronizzazione
-initializeDatabase().then(() => {
-    console.log('✅ Database inizializzato');
-    startSyncWorker();
-}).catch(error => {
-    console.error('❌ Errore inizializzazione:', error.message);
-    process.exit(1);
-});
+        // Inizializza database e worker di sincronizzazione
+        // La connessione al server Calibre avviene solo durante gli aggiornamenti del database
+        initializeDatabase().then(() => {
+            console.log('✅ Database inizializzato');
+            startSyncWorker();
+        }).catch(error => {
+            console.error('❌ Errore inizializzazione:', error.message);
+            process.exit(1);
+        });
 
 app.get('/api/books', async (req, res) => {
   try {

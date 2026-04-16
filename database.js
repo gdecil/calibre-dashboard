@@ -90,7 +90,7 @@ async function cleanupOldBackups() {
 async function getReadBooks() {
     try {
         const query = `
-            SELECT * FROM read_books 
+            SELECT * FROM read_books
             ORDER BY read_at DESC, title ASC
         `;
         const result = await pool.query(query);
@@ -162,7 +162,7 @@ async function upsertBook(book) {
         const query = `
             INSERT INTO read_books (id, title, authors, tags, publisher, published_date, isbn, language, last_modified, rating)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            ON CONFLICT (id) 
+            ON CONFLICT (id)
             DO UPDATE SET
                 title = EXCLUDED.title,
                 authors = EXCLUDED.authors,
@@ -174,7 +174,7 @@ async function upsertBook(book) {
                 last_modified = EXCLUDED.last_modified,
                 rating = EXCLUDED.rating,
                 updated_at = NOW()
-            WHERE read_books.last_modified IS NULL 
+            WHERE read_books.last_modified IS NULL
                OR read_books.last_modified < EXCLUDED.last_modified
         `;
         await pool.query(query, [
@@ -199,8 +199,8 @@ async function upsertBook(book) {
 async function searchBooks(query) {
     try {
         const searchQuery = `
-            SELECT * FROM read_books 
-            WHERE LOWER(title) LIKE LOWER($1) 
+            SELECT * FROM read_books
+            WHERE LOWER(title) LIKE LOWER($1)
                OR LOWER(authors::text) LIKE LOWER($1)
             ORDER BY read_at DESC, title ASC
             LIMIT 100
