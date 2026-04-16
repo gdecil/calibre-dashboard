@@ -185,12 +185,31 @@ class BookEnricher {
      */
     async updateBookInDatabase(bookId, enrichedData) {
         try {
+            // Normalize published date
+            let publishedDate = null;
+            if (enrichedData.publishedDate) {
+                const dateStr = String(enrichedData.publishedDate).trim();
+                if (dateStr.length === 4 && /^\d{4}$/.test(dateStr)) {
+                    // Just a year, set to January 1st
+                    publishedDate = `${dateStr}-01-01`;
+                } else if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    // Already full date
+                    publishedDate = dateStr;
+                } else if (dateStr.match(/^\d{4}-\d{2}$/)) {
+                    // Year-month, set to first day
+                    publishedDate = `${dateStr}-01`;
+                } else {
+                    // Invalid format, skip
+                    publishedDate = null;
+                }
+            }
+
             // Map enriched data to database fields
             const updateData = {
                 title: enrichedData.title,
                 authors: enrichedData.authors,
                 publisher: enrichedData.publisher,
-                published_date: enrichedData.publishedDate,
+                published_date: publishedDate,
                 description: enrichedData.description,
                 page_count: enrichedData.pageCount,
                 categories: enrichedData.categories || enrichedData.subjects,
