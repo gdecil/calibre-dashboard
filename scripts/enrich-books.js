@@ -27,8 +27,10 @@ async function main() {
         console.log(`  Senza cambiamenti: ${results.noChanges}`);
         console.log(`  Fallimenti: ${results.failed}`);
 
-        if (results.error) {
-            console.error(`\n❌ Errore: ${results.error}`);
+        if (results.error || results.failed > 0) {
+            if (results.error) console.error(`\n❌ Errore critico: ${results.error}`);
+            if (results.failed > 0) console.error(`\n⚠️  Processo completato con ${results.failed} fallimenti.`);
+            process.exit(1);
         } else {
             console.log('\n✅ Processo di arricchimento completato!');
         }

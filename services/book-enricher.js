@@ -228,12 +228,12 @@ class BookEnricher {
 
             const result = await pool.query(query, [
                 updateData.title,
-                updateData.authors,
+                JSON.stringify(updateData.authors || []),
                 updateData.publisher,
                 updateData.published_date,
                 updateData.description,
                 updateData.page_count,
-                updateData.categories,
+                JSON.stringify(updateData.categories || []),
                 updateData.language,
                 updateData.isbn,
                 updateData.cover_url,
@@ -322,13 +322,15 @@ class BookEnricher {
      * @returns {boolean} True if significant changes found
      */
     _hasSignificantChanges(original, enriched) {
+        if (!enriched || original === enriched) return false;
+        
         const changes = [];
 
         if (original.isbn && enriched.isbn && original.isbn !== enriched.isbn) changes.push('isbn');
         if (!original.description && enriched.description) changes.push('description');
         if (!original.cover_url && enriched.thumbnail) changes.push('cover');
         if (original.publisher !== enriched.publisher) changes.push('publisher');
-        if (original.published_date !== enriched.publishedDate) changes.push('date');
+        if (enriched.publishedDate && original.published_date !== enriched.publishedDate) changes.push('date');
 
         return changes.length > 0;
     }
