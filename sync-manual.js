@@ -4,7 +4,7 @@ require('dotenv').config();
 
 const CALIBRE_URL = process.env.CALIBRE_URL || 'http://localhost:8090';
 const CALIBRE_USERNAME = process.env.CALIBRE_USERNAME || 'gdecil';
-const CALIBRE_PASSWORD = process.env.CALIBRE_PASSWORD || 'SW"3edfr4';
+const CALIBRE_PASSWORD = process.env.CALIBRE_PASSWORD || '';
 
 // Configurazione axios con autenticazione
 const axiosInstance = axios.create({

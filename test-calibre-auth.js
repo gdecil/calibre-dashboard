@@ -3,7 +3,7 @@ require('dotenv').config();
 
 const CALIBRE_URL = process.env.CALIBRE_URL || 'http://192.168.1.5:8090';
 const CALIBRE_USERNAME = process.env.CALIBRE_USERNAME || 'gdecil';
-const CALIBRE_PASSWORD = process.env.CALIBRE_PASSWORD || 'SW"3edfr4';
+const CALIBRE_PASSWORD = process.env.CALIBRE_PASSWORD || '';
 
 async function testAuthMethods() {
     console.log('🔍 Test metodi di autenticazione Calibre...');
