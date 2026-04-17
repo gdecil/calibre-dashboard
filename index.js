@@ -69,7 +69,11 @@ app.get('/api/stats', async (req, res) => {
       top_authors: [
         ["Isaac Asimov", 23], ["Arthur C. Clarke", 18], ["Philip K. Dick", 15],
         ["Umberto Eco", 12], ["George Orwell", 9], ["Frank Herbert", 8],
-        ["William Gibson", 7], ["J.R.R. Tolkien", 6], ["Neil Gaiman", 5], ["Dan Simmons", 4]
+        ["William Gibson", 7], ["J.R.R. Tolkien", 6], ["Neil Gaiman", 5], ["Dan Simmons", 4],
+        ["H.P. Lovecraft", 4], ["Ray Bradbury", 3], ["Stanisław Lem", 3], ["Italo Calvino", 3],
+        ["Jules Verne", 2], ["H.G. Wells", 2], ["Aldous Huxley", 2], ["Ken Follett", 2],
+        ["Stephen King", 2], ["Dan Brown", 1], ["Agatha Christie", 1], ["Primo Levi", 1],
+        ["Ernest Hemingway", 1], ["Gabriel García Márquez", 1], ["Franz Kafka", 1]
       ],
       top_genres: [
         ["Fantascienza", 112], ["Fantasy", 78], ["Thriller", 45], 

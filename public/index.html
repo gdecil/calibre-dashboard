@@ -1,451 +1,301 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calibre Dashboard - Libreria Personale</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
+<!-- Modified HTML to replace authors chart with sortable list -->
+<!-- Inclusione Chart.js per il grafico -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-        body {
-            background-color: #f0f2f5;
-            color: #1a1a1a;
-            line-height: 1.6;
-        }
-
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 2rem 0;
-            text-align: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-
-        .header h1 {
-            font-size: 2.2rem;
-            font-weight: 600;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .stat-card {
-            background: white;
-            border-radius: 12px;
-            padding: 1.5rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.12);
-        }
-
-        .stat-value {
-            font-size: 2.5rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .stat-label {
-            color: #64748b;
-            font-size: 0.95rem;
-            margin-top: 0.5rem;
-        }
-
-        .charts-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .chart-card {
-            background: white;
-            border-radius: 12px;
-            padding: 1.5rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-
-        .chart-card h3 {
-            margin-bottom: 1rem;
-            color: #334155;
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
-
-        .books-section {
-            background: white;
-            border-radius: 12px;
-            padding: 1.5rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-
-        .books-section h3 {
-            margin-bottom: 1rem;
-            color: #334155;
-            font-size: 1.3rem;
-            font-weight: 600;
-        }
-
-        .search-box {
-            width: 100%;
-            padding: 0.8rem 1rem;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 1rem;
-            margin-bottom: 1rem;
-            transition: border-color 0.2s;
-        }
-
-        .search-box:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .books-list {
-            max-height: 600px;
-            overflow-y: auto;
-        }
-
-        .book-item {
-            padding: 1rem;
-            border-bottom: 1px solid #f1f5f9;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: background-color 0.2s;
-        }
-
-        .book-item:hover {
-            background-color: #f8fafc;
-        }
-
-        .book-title {
-            font-weight: 600;
-            color: #1e293b;
-        }
-
-        .book-authors {
-            color: #64748b;
-            font-size: 0.9rem;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 3rem;
-            color: #64748b;
-        }
-
-        .spinner {
-            width: 48px;
-            height: 48px;
-            border: 4px solid #e2e8f0;
-            border-top-color: #667eea;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 1rem;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .footer {
-            text-align: center;
-            padding: 2rem;
-            color: #64748b;
-            font-size: 0.9rem;
-        }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>📚 Calibre Dashboard</h1>
-        <p>La tua libreria personale con statistiche di lettura</p>
-    </header>
-
-    <div class="container">
-        <div class="stats-grid" id="statsGrid">
-            <div class="loading">
-                <div class="spinner"></div>
-                <p>Caricamento dati...</p>
-            </div>
-        </div>
-
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>📊 Distribuzione Valutazioni</h3>
-                <canvas id="ratingChart"></canvas>
-            </div>
-            <div class="chart-card">
-                <h3>👤 Top 10 Autori</h3>
-                <canvas id="authorsChart"></canvas>
-            </div>
-            <div class="chart-card">
-                <h3>🏷️ Top Generi</h3>
-                <canvas id="genresChart"></canvas>
-            </div>
-        </div>
-
-        <div class="books-section">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h3>📖 Libri Letti</h3>
-            <button id="refreshBtn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; cursor: pointer; font-weight: 500;">
-                🔄 Aggiorna Libreria
-            </button>
-        </div>
-        <input type="text" class="search-box" id="searchInput" placeholder="Cerca libri per titolo o autore...">
-            <div class="books-list" id="booksList">
-                <div class="loading">Caricamento libri...</div>
-            </div>
-        </div>
+<style>
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Affianca i due elementi */
+    gap: 1.5rem;
+    align-items: start;
+  }
+  .sortable-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    font-size: 0.85rem; /* Testo leggermente più piccolo */
+  }
+  .sortable-table th, .sortable-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #edf2f7;
+  }
+  .sortable-table th {
+    background-color: #f7fafc;
+    color: #4a5568;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .chart-card {
+    padding: 1rem !important; /* Riduce il padding interno della card */
+  }
+  .chart-card h3 {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+  }
+  .sortable-table th:hover {
+    background-color: #edf2f7;
+  }
+  .sortable-table tbody tr {
+    cursor: pointer;
+  }
+  .sortable-table tr:hover {
+    background-color: #f8fafc;
+  }
+  .table-container {
+    max-height: 320px; /* Altezza ridotta per compattezza */
+    overflow-y: auto;
+    border: 1px solid #edf2f7;
+    border-radius: 8px;
+    margin-top: 10px;
+  }
+  .search-container {
+    margin-bottom: 15px;
+  }
+  #authorSearch {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 1rem;
+    outline: none;
+  }
+  #authorSearch:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+  }
+  .full-width-card {
+    grid-column: 1 / -1;
+    margin-top: 1rem;
+  }
+</style>
+<div class="charts-grid">
+<div class="chart-card">
+    <h3>📊 Top 20 Autori</h3>
+    <canvas id="authorsChart"></canvas>
+</div>
+<div class="chart-card">
+    <h3>👤 Tutti gli Autori</h3>
+    <div class="search-container">
+        <input type="text" id="authorSearch" placeholder="Cerca autore o libri per autore...">
     </div>
+    <div class="table-container">
+        <table id="authorsTable" class="sortable-table">
+          <thead>
+            <tr>
+              <th id="th-author">Autore <span></span></th>
+              <th id="th-count">Libri Letti <span></span></th>
+            </tr>
+          </thead>
+          <tbody id="authorsBody">
+            <!-- Authors will be populated here -->
+          </tbody>
+        </table>
+    </div>
+</div>
 
-    <footer class="footer">
-        <p>Calibre Dashboard • Connesso a ${CALIBRE_URL}</p>
-    </footer>
+<div class="chart-card full-width-card">
+    <h3>📚 Tutti i Libri</h3>
+    <div class="search-container">
+        <input type="text" id="bookSearch" placeholder="Cerca per titolo...">
+    </div>
+    <div class="table-container" style="max-height: 450px;">
+        <table id="booksTable" class="sortable-table">
+          <thead>
+            <tr>
+              <th>Titolo</th>
+              <th>Autore</th>
+            </tr>
+          </thead>
+          <tbody id="booksBody">
+            <!-- Books will be populated here -->
+          </tbody>
+        </table>
+    </div>
+</div>
+</div>
 
-    <script>
-        let allBooks = [];
-        let ratingChartInstance = null;
-        let authorsChartInstance = null;
-        let genresChartInstance = null;
-        let isLoading = false;
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    let authorsData = [];
+    let filteredData = [];
+    let allBooks = [];
+    let filteredBooks = [];
+    let currentSort = { column: 'count', direction: 'desc' };
+    const tbody = document.getElementById('authorsBody');
+    const thAuthor = document.getElementById('th-author');
+    const thCount = document.getElementById('th-count');
+    const searchInput = document.getElementById('authorSearch');
+    const booksBody = document.getElementById('booksBody');
+    const bookSearchInput = document.getElementById('bookSearch');
 
-        async function loadData() {
-            if (isLoading) return;
-            isLoading = true;
+    // Funzione centralizzata per filtrare i libri per autore
+    function filterBooksByAuthor(authorName) {
+      const term = authorName.toLowerCase().trim();
+      bookSearchInput.value = authorName; // Aggiorna la barra di ricerca libri
+      
+      filteredBooks = allBooks.filter(book => {
+        const bookAuthors = Array.isArray(book.authors) 
+          ? book.authors.join(', ') 
+          : String(book.authors).replace(/[\[\]"]/g, '');
+        return bookAuthors.toLowerCase().includes(term);
+      });
+      
+      renderBooksTable();
+      document.querySelector('.full-width-card').scrollIntoView({ behavior: 'smooth' });
+    }
 
-            try {
-                const [statsResponse, booksResponse] = await Promise.all([
-                    fetch('/api/stats', { cache: 'no-store' }),
-                    fetch('/api/books/read', { cache: 'no-store' })
-                ]);
+    // Funzione per estrarre il cognome per l'ordinamento
+    function getLastName(fullName) {
+      if (!fullName) return '';
+      const cleanName = String(fullName).replace(/[\[\]"]/g, '').trim();
+      if (cleanName.includes(',')) return cleanName.split(',')[0].trim().toLowerCase();
+      const parts = cleanName.split(/\s+/);
+      return parts[parts.length - 1].toLowerCase();
+    }
 
-                const stats = await statsResponse.json();
-                allBooks = await booksResponse.json();
+    function renderTable(dataToDisplay = filteredData) {
+      tbody.innerHTML = '';
+      dataToDisplay.forEach(author => {
+        const row = document.createElement('tr');
+        const displayName = String(author[0]).replace(/[\[\]"]/g, '');
+        row.innerHTML = `<td>${displayName}</td><td>${author[1]}</td>`;
+        tbody.appendChild(row);
+      });
+      updateSortIcons();
+    }
 
-                // Debug: log the data to console
-                console.log('Stats data:', stats);
-                console.log('Books data:', allBooks);
+    function renderBooksTable(dataToDisplay = filteredBooks) {
+      booksBody.innerHTML = '';
+      dataToDisplay.forEach(book => {
+        const row = document.createElement('tr');
+        // Gestione autori (pulisce il formato JSON se necessario)
+        const authorDisplay = Array.isArray(book.authors) 
+          ? book.authors.join(', ') 
+          : String(book.authors).replace(/[\[\]"]/g, '');
+        
+        row.innerHTML = `<td>${book.title}</td><td>${authorDisplay}</td>`;
+        booksBody.appendChild(row);
+      });
+    }
 
-                // Add safety checks for undefined data
-                if (!stats || typeof stats !== 'object') {
-                    throw new Error('Invalid stats data format');
+    function updateSortIcons() {
+      [thAuthor, thCount].forEach(th => th.querySelector('span').textContent = '');
+      const activeTh = currentSort.column === 'author' ? thAuthor : thCount;
+      activeTh.querySelector('span').textContent = currentSort.direction === 'asc' ? ' 🔼' : ' 🔽';
+    }
+
+    function sortData(column) {
+      if (currentSort.column === column) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentSort.column = column;
+        currentSort.direction = column === 'count' ? 'desc' : 'asc';
+      }
+
+      filteredData.sort((a, b) => {
+        let valA, valB;
+        if (column === 'author') {
+          valA = getLastName(a[0]);
+          valB = getLastName(b[0]);
+        } else {
+          valA = parseInt(a[1]);
+          valB = parseInt(b[1]);
+        }
+        if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+      renderTable();
+    }
+
+    // Funzionalità di ricerca
+    searchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      filteredData = authorsData.filter(author => 
+        String(author[0]).toLowerCase().includes(term)
+      );
+      renderTable();
+    });
+
+    // Click sulla riga della tabella autori
+    tbody.addEventListener('click', (e) => {
+      const row = e.target.closest('tr');
+      if (row) {
+        const authorName = row.cells[0].textContent;
+        filterBooksByAuthor(authorName);
+      }
+    });
+
+    // Ricerca libri per titolo
+    bookSearchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      filteredBooks = allBooks.filter(book => 
+        book.title.toLowerCase().includes(term)
+      );
+      renderBooksTable();
+    });
+
+    thAuthor.addEventListener('click', () => sortData('author'));
+    thCount.addEventListener('click', () => sortData('count'));
+
+    async function init() {
+      try {
+        const response = await fetch('/api/stats');
+        const stats = await response.json();
+        authorsData = stats.top_authors || [];
+        filteredData = [...authorsData];
+        
+        // Inizializza Grafico Top 20
+        if (window.Chart && document.getElementById('authorsChart')) {
+          const top20 = authorsData.slice(0, 20);
+          new Chart(document.getElementById('authorsChart'), {
+            type: 'bar',
+            data: {
+              labels: top20.map(a => String(a[0]).replace(/[\[\]"]/g, '')),
+              datasets: [{
+                label: 'Libri Letti',
+                data: top20.map(a => a[1]),
+                backgroundColor: 'rgba(102, 126, 234, 0.6)',
+                borderColor: 'rgba(102, 126, 234, 1)',
+                borderWidth: 1
+              }]
+            },
+            options: {
+              indexAxis: 'y',
+              responsive: true,
+              plugins: { legend: { display: false } },
+              scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } },
+              onClick: (e, elements, chart) => {
+                if (elements.length > 0) {
+                  const index = elements[0].index;
+                  const author = chart.data.labels[index];
+                  filterBooksByAuthor(author);
                 }
-
-                // Ensure required fields exist
-                stats.top_authors = stats.top_authors || [];
-                stats.top_genres = stats.top_genres || [];
-                stats.rating_distribution = stats.rating_distribution || {1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
-
-                renderStats(stats);
-                renderCharts(stats);
-                renderBooks(allBooks);
-
-            } catch (error) {
-                console.error('Detailed error:', error);
-                document.getElementById('statsGrid').innerHTML = `
-                    <div style="text-align: center; padding: 3rem; color: #dc2626;">
-                        ❌ Errore nel caricamento dei dati: ${error.message}
-                    </div>
-                `;
-            } finally {
-                isLoading = false;
+              }
             }
+          });
         }
 
-function renderStats(stats) {
-    document.getElementById('statsGrid').innerHTML = `
-        <div class="stat-card">
-            <div class="stat-value">${stats.total_books}</div>
-            <div class="stat-label">Totale Libri nella Libreria</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">${stats.read_books}</div>
-            <div class="stat-label">Libri Letti</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">${stats.percentage_read}%</div>
-            <div class="stat-label">Percentuale Completata</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">${(stats.top_authors && stats.top_authors.length) || 0}</div>
-            <div class="stat-label">Autori Distinti</div>
-        </div>
-    `;
-}
+        renderTable();
 
-        function renderCharts(stats) {
-            // Distruggi grafico esistente se presente
-            if (ratingChartInstance) ratingChartInstance.destroy();
-            if (authorsChartInstance) authorsChartInstance.destroy();
-            if (genresChartInstance) genresChartInstance.destroy();
+        // Carica tutti i libri
+        const booksResponse = await fetch('/api/books');
+        allBooks = await booksResponse.json();
+        filteredBooks = [...allBooks];
+        renderBooksTable();
 
-            try {
-                // Grafico distribuzione valutazioni (sempre visibile)
-                console.log('Creating rating chart with data:', Object.values(stats.rating_distribution));
-                ratingChartInstance = new Chart(document.getElementById('ratingChart'), {
-                    type: 'bar',
-                    data: {
-                        labels: ['1 Stella', '2 Stelle', '3 Stelle', '4 Stelle', '5 Stelle'],
-                        datasets: [{
-                            label: 'Numero Libri',
-                            data: Object.values(stats.rating_distribution),
-                            backgroundColor: [
-                                '#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'
-                            ],
-                            borderRadius: 6
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: { legend: { display: false } },
-                        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-                    }
-                });
-            } catch (error) {
-                console.error('Error creating rating chart:', error);
-                document.getElementById('ratingChart').parentElement.innerHTML = `
-                    <div style="text-align: center; padding: 2rem; color: #dc2626;">
-                        ❌ Errore nel creare il grafico delle valutazioni
-                    </div>
-                `;
-            }
-
-            // Sicurezza: assicurati che top_authors esista e sia un array
-            const topAuthors = stats.top_authors || [];
-            // Crea grafico autori solo se ci sono dati
-            if (topAuthors.length > 0) {
-                try {
-                    console.log('Creating authors chart with data:', topAuthors);
-                    authorsChartInstance = new Chart(document.getElementById('authorsChart'), {
-                        type: 'bar',
-                        data: {
-                            labels: topAuthors.map(a => a[0]),
-                            datasets: [{
-                                label: 'Libri Letti',
-                                data: topAuthors.map(a => a[1]),
-                                backgroundColor: '#667eea',
-                                borderRadius: 6
-                            }]
-                        },
-                        options: {
-                            indexAxis: 'y',
-                            responsive: true,
-                            plugins: { legend: { display: false } },
-                            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
-                        }
-                    });
-                } catch (error) {
-                    console.error('Error creating authors chart:', error);
-                    document.getElementById('authorsChart').parentElement.innerHTML = `
-                        <div style="text-align: center; padding: 2rem; color: #dc2626;">
-                            ❌ Errore nel creare il grafico degli autori
-                        </div>
-                    `;
-                }
-            } else {
-                console.log('No authors data to display');
-            }
-
-            // Sicurezza: assicurati che top_genres esista e sia un array
-            const topGenres = stats.top_genres || [];
-            // Crea grafico generi solo se ci sono dati
-            if (topGenres.length > 0) {
-                try {
-                    console.log('Creating genres chart with data:', topGenres);
-                    genresChartInstance = new Chart(document.getElementById('genresChart'), {
-                        type: 'doughnut',
-                        data: {
-                            labels: topGenres.map(g => g[0]),
-                            datasets: [{
-                                data: topGenres.map(g => g[1]),
-                                backgroundColor: [
-                                    '#667eea', '#764ba2', '#06b6d4', '#10b981', '#f59e0b',
-                                    '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
-                                ]
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            plugins: { legend: { position: 'right' } }
-                        }
-                    });
-                } catch (error) {
-                    console.error('Error creating genres chart:', error);
-                    document.getElementById('genresChart').parentElement.innerHTML = `
-                        <div style="text-align: center; padding: 2rem; color: #dc2626;">
-                            ❌ Errore nel creare il grafico dei generi
-                        </div>
-                    `;
-                }
-            } else {
-                console.log('No genres data to display');
-            }
-        }
-
-        function renderBooks(books) {
-            if (books.length === 0) {
-                document.getElementById('booksList').innerHTML = '<div style="text-align: center; padding: 2rem; color: #64748b;">Nessun libro trovato</div>';
-                return;
-            }
-
-            document.getElementById('booksList').innerHTML = books.map(book => `
-                <div class="book-item">
-                    <div>
-                        <div class="book-title">${book.title}</div>
-                        <div class="book-authors">${book.authors ? book.authors.join(', ') : 'Autore sconosciuto'}</div>
-                    </div>
-                    <div style="color: #64748b;">
-                        ${book.user_metadata && book.user_metadata['#rating'] ? '⭐'.repeat(Math.round(book.user_metadata['#rating'].value)) : ''}
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // Event listener ricerca - creato UNA SOLA VOLTA all'avvio
-        document.getElementById('searchInput').addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            const filtered = allBooks.filter(book => 
-                book.title.toLowerCase().includes(query) ||
-                (book.authors && book.authors.some(a => a.toLowerCase().includes(query)))
-            );
-            renderBooks(filtered);
-        });
-
-        document.getElementById('refreshBtn').addEventListener('click', () => {
-            if (isLoading) return;
-            document.getElementById('refreshBtn').disabled = true;
-            document.getElementById('refreshBtn').textContent = '🔄 Aggiornamento...';
-            loadData().finally(() => {
-                document.getElementById('refreshBtn').disabled = false;
-                document.getElementById('refreshBtn').textContent = '🔄 Aggiorna Libreria';
-            });
-        });
-
-        document.addEventListener('DOMContentLoaded', loadData);
-    </script>
-</body>
-</html>
+      } catch (error) {
+        console.error('Error loading authors:', error);
+      }
+    }
+    init();
+  });
+</script>

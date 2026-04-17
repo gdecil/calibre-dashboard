@@ -112,7 +112,6 @@ async function getStats() {
                 FROM read_books
                 GROUP BY authors
                 ORDER BY count DESC
-                LIMIT 10
             `),
             pool.query(`
                 SELECT tags, COUNT(*) as count
@@ -120,7 +119,6 @@ async function getStats() {
                 WHERE tags IS NOT NULL
                 GROUP BY tags
                 ORDER BY count DESC
-                LIMIT 10
             `),
             pool.query('SELECT rating, COUNT(*) as count FROM read_books GROUP BY rating')
         ]);
