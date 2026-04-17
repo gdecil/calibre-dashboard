@@ -345,9 +345,15 @@ class BookEnricher {
         
         const changes = [];
 
+        // Controlla identificatori
         if (original.isbn && enriched.isbn && original.isbn !== enriched.isbn) changes.push('isbn');
+        
+        // Controlla contenuti mancanti che ora sono presenti
         if (!original.description && enriched.description) changes.push('description');
         if (!original.cover_url && enriched.thumbnail) changes.push('cover');
+        if (!original.page_count && enriched.pageCount) changes.push('page_count');
+        
+        // Controlla aggiornamenti di metadati
         if (original.publisher !== enriched.publisher) changes.push('publisher');
         if (enriched.publishedDate && original.published_date !== enriched.publishedDate) changes.push('date');
 
