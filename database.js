@@ -39,7 +39,7 @@ function backupDatabase() {
         try {
             const date = new Date();
             const filename = `backup_${date.toISOString().slice(0, 19).replace(/:/g, '-')}.sql`;
-            const command = `pg_dump -U postgres -d calibre -f backups/${filename}`;
+            const command = `"D:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe" -U postgres -d calibre -f backups/${filename}`;
 
             const { exec } = require('child_process');
             exec(command, (error, stdout, stderr) => {
@@ -104,11 +104,11 @@ async function getReadBooks() {
 // Ottieni statistiche
 async function getStats() {
     try {
-        const [totalQuery, readQuery, topAuthorsQuery, topGenresQuery, ratingsQuery] = await Promise.all([
+        const [totalQuery, readQuery, topAuthorsQuery, topGenresQuery, ratingsQuery, authorsCountQuery] = await Promise.all([
             pool.query('SELECT COUNT(*) as total FROM read_books'),
             pool.query('SELECT COUNT(*) as read FROM read_books'),
             pool.query(`
-                SELECT authors, COUNT(*) as count
+                SELECT authors, COUNT(*) as count, MAX(read_at) as last_read_date
                 FROM read_books
                 GROUP BY authors
                 ORDER BY count DESC
@@ -120,15 +120,21 @@ async function getStats() {
                 GROUP BY tags
                 ORDER BY count DESC
             `),
-            pool.query('SELECT rating, COUNT(*) as count FROM read_books GROUP BY rating')
+            pool.query('SELECT rating, COUNT(*) as count FROM read_books GROUP BY rating'),
+            pool.query(`
+                SELECT COUNT(DISTINCT authors) as total_authors
+                FROM read_books
+                WHERE authors IS NOT NULL
+            `)
         ]);
 
         const totalBooks = totalQuery.rows[0].total;
         const readBooks = readQuery.rows[0].read;
         const percentageRead = totalBooks > 0 ? Math.round((readBooks / totalBooks) * 100) : 0;
+        const totalAuthors = authorsCountQuery.rows[0].total_authors || 0;
 
-        // Converti gli autori in formato [nome, conteggio]
-        const topAuthors = topAuthorsQuery.rows.map(row => [row.authors, row.count]);
+        // Converti gli autori in formato [nome, conteggio, last_read_date]
+        const topAuthors = topAuthorsQuery.rows.map(row => [row.authors, row.count, row.last_read_date]);
 
         // Converti i generi in formato [nome, conteggio]
         const topGenres = topGenresQuery.rows.map(row => [row.tags, row.count]);
@@ -146,7 +152,8 @@ async function getStats() {
             percentage_read: percentageRead,
             top_authors: topAuthors,
             top_genres: topGenres,
-            rating_distribution: ratingDistribution
+            rating_distribution: ratingDistribution,
+            total_authors: totalAuthors
         };
     } catch (error) {
         console.error('❌ Errore query statistiche:', error.message);
@@ -211,12 +218,61 @@ async function searchBooks(query) {
     }
 }
 
+// Ottieni statistiche avanzate
+async function getAdvancedStats() {
+    try {
+        const [ratingDistQuery, yearDistQuery, languageDistQuery, genreDistQuery] = await Promise.all([
+            pool.query(`
+                SELECT rating, COUNT(*) as count 
+                FROM read_books 
+                WHERE rating IS NOT NULL 
+                GROUP BY rating 
+                ORDER BY rating DESC
+            `),
+            pool.query(`
+                SELECT EXTRACT(YEAR FROM read_at)::integer as year, COUNT(*) as count
+                FROM read_books
+                WHERE read_at IS NOT NULL
+                GROUP BY EXTRACT(YEAR FROM read_at)
+                ORDER BY year DESC
+            `),
+            pool.query(`
+                SELECT language, COUNT(*) as count
+                FROM read_books
+                WHERE language IS NOT NULL
+                GROUP BY language
+                ORDER BY count DESC
+                LIMIT 10
+            `),
+            pool.query(`
+                SELECT tags, COUNT(*) as count
+                FROM read_books
+                WHERE tags IS NOT NULL
+                GROUP BY tags
+                ORDER BY count DESC
+                LIMIT 15
+            `)
+        ]);
+
+        return {
+            rating_distribution: ratingDistQuery.rows.map(row => [row.rating, row.count]),
+            year_distribution: yearDistQuery.rows.map(row => [row.year, row.count]),
+            language_distribution: languageDistQuery.rows.map(row => [row.language, row.count]),
+            top_genres: genreDistQuery.rows.map(row => [row.tags, row.count])
+        };
+    } catch (error) {
+        console.error('❌ Errore query statistiche avanzate:', error.message);
+        throw error;
+    }
+}
+
 module.exports = {
     initializeDatabase,
     backupDatabase,
     cleanupOldBackups,
     getReadBooks,
     getStats,
+    getAdvancedStats,
     upsertBook,
     searchBooks,
     testDatabaseConnection,

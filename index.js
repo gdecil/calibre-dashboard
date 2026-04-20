@@ -3,7 +3,10 @@ const axios = require('axios');
 const cors = require('cors');
 const path = require('path');
 const { CronJob } = require('node-cron');
-const { initializeDatabase, getReadBooks, getStats, searchBooks } = require('./database');
+
+// Forza ricaricamento del modulo database per evitare cache
+delete require.cache[require.resolve('./database')];
+const { initializeDatabase, getReadBooks, getStats, getAdvancedStats, searchBooks } = require('./database');
 const { startSyncWorker } = require('./sync-worker');
 require('dotenv').config();
 
@@ -80,6 +83,19 @@ app.get('/api/stats', async (req, res) => {
         ["Storia", 32], ["Filosofia", 25], ["Biografia", 20]
       ],
       rating_distribution: { 1: 3, 2: 12, 3: 45, 4: 138, 5: 114 }
+    });
+  }
+});
+
+app.get('/api/advanced-stats', async (req, res) => {
+  try {
+    const stats = await getAdvancedStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Errore statistiche avanzate:', error.message);
+    res.status(500).json({ 
+      error: 'Errore nel recupero statistiche avanzate', 
+      details: error.message
     });
   }
 });

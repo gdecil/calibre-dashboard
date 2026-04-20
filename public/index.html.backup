@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📚 Calibre Dashboard - Biblioteca Personale</title>
+    
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {'50': '#f0f9ff', '100': '#e0f2fe', '200': '#bae6fd', '300': '#7dd3fc', '400': '#38bdf8', '500': '#0ea5e9', '600': '#0284c7', '700': '#0369a1', '800': '#075985', '900': '#0c3d66'},
+                        accent: {'50': '#fdf2f8', '100': '#fce7f3', '200': '#fbcfe8', '300': '#f8b4d8', '400': '#f472b6', '500': '#ec4899', '600': '#db2777', '700': '#be185d', '800': '#9d174d', '900': '#831843'}
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    
+    <style>
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Affianca i due elementi */
+    gap: 1.5rem;
+    align-items: start;
+  }
+  .sortable-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    font-size: 0.85rem; /* Testo leggermente più piccolo */
+  }
+  .sortable-table th, .sortable-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #edf2f7;
+  }
+  .sortable-table th {
+    background-color: #f7fafc;
+    color: #4a5568;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .chart-card {
+    padding: 1rem !important; /* Riduce il padding interno della card */
+  }
+  .chart-card h3 {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+  }
+  .sortable-table th:hover {
+    background-color: #edf2f7;
+  }
+  .sortable-table tbody tr {
+    cursor: pointer;
+  }
+  .sortable-table tr:hover {
+    background-color: #f8fafc;
+  }
+  .table-container {
+    max-height: 320px; /* Altezza ridotta per compattezza */
+    overflow-y: auto;
+    border: 1px solid #edf2f7;
+    border-radius: 8px;
+    margin-top: 10px;
+  }
+  .search-container {
+    margin-bottom: 15px;
+  }
+  #authorSearch {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 1rem;
+    outline: none;
+  }
+  #authorSearch:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+  }
+  .full-width-card {
+    grid-column: 1 / -1;
+    margin-top: 1rem;
+  }
+</style>
+<div class="charts-grid">
+<div class="chart-card">
+    <h3>📊 Top 20 Autori</h3>
+    <canvas id="authorsChart"></canvas>
+</div>
+<div class="chart-card">
+    <h3>👤 Tutti gli Autori</h3>
+    <div class="search-container">
+        <input type="text" id="authorSearch" placeholder="Cerca autore o libri per autore...">
+    </div>
+    <div class="table-container">
+        <table id="authorsTable" class="sortable-table">
+          <thead>
+            <tr>
+              <th id="th-author">Autore <span></span></th>
+              <th id="th-count">Libri Letti <span></span></th>
+            </tr>
+          </thead>
+          <tbody id="authorsBody">
+            <!-- Authors will be populated here -->
+          </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="chart-card full-width-card">
+    <h3>📚 Tutti i Libri</h3>
+    <div class="search-container">
+        <input type="text" id="bookSearch" placeholder="Cerca per titolo...">
+    </div>
+    <div class="table-container" style="max-height: 450px;">
+        <table id="booksTable" class="sortable-table">
+          <thead>
+            <tr>
+              <th>Titolo</th>
+              <th>Autore</th>
+            </tr>
+          </thead>
+          <tbody id="booksBody">
+            <!-- Books will be populated here -->
+          </tbody>
+        </table>
+    </div>
+</div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    let authorsData = [];
+    let filteredData = [];
+    let allBooks = [];
+    let filteredBooks = [];
+    let currentSort = { column: 'count', direction: 'desc' };
+    const tbody = document.getElementById('authorsBody');
+    const thAuthor = document.getElementById('th-author');
+    const thCount = document.getElementById('th-count');
+    const searchInput = document.getElementById('authorSearch');
+    const booksBody = document.getElementById('booksBody');
+    const bookSearchInput = document.getElementById('bookSearch');
+
+    // Funzione centralizzata per filtrare i libri per autore
+    function filterBooksByAuthor(authorName) {
+      const term = authorName.toLowerCase().trim();
+      bookSearchInput.value = authorName; // Aggiorna la barra di ricerca libri
+      
+      filteredBooks = allBooks.filter(book => {
+        const bookAuthors = Array.isArray(book.authors) 
+          ? book.authors.join(', ') 
+          : String(book.authors).replace(/[\[\]"]/g, '');
+        return bookAuthors.toLowerCase().includes(term);
+      });
+      
+      renderBooksTable();
+      document.querySelector('.full-width-card').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Funzione per estrarre il cognome per l'ordinamento
+    function getLastName(fullName) {
+      if (!fullName) return '';
+      const cleanName = String(fullName).replace(/[\[\]"]/g, '').trim();
+      if (cleanName.includes(',')) return cleanName.split(',')[0].trim().toLowerCase();
+      const parts = cleanName.split(/\s+/);
+      return parts[parts.length - 1].toLowerCase();
+    }
+
+    function renderTable(dataToDisplay = filteredData) {
+      tbody.innerHTML = '';
+      dataToDisplay.forEach(author => {
+        const row = document.createElement('tr');
+        const displayName = String(author[0]).replace(/[\[\]"]/g, '');
+        row.innerHTML = `<td>${displayName}</td><td>${author[1]}</td>`;
+        tbody.appendChild(row);
+      });
+      updateSortIcons();
+    }
+
+    function renderBooksTable(dataToDisplay = filteredBooks) {
+      booksBody.innerHTML = '';
+      dataToDisplay.forEach(book => {
+        const row = document.createElement('tr');
+        // Gestione autori (pulisce il formato JSON se necessario)
+        const authorDisplay = Array.isArray(book.authors) 
+          ? book.authors.join(', ') 
+          : String(book.authors).replace(/[\[\]"]/g, '');
+        
+        row.innerHTML = `<td>${book.title}</td><td>${authorDisplay}</td>`;
+        booksBody.appendChild(row);
+      });
+    }
+
+    function updateSortIcons() {
+      [thAuthor, thCount].forEach(th => th.querySelector('span').textContent = '');
+      const activeTh = currentSort.column === 'author' ? thAuthor : thCount;
+      activeTh.querySelector('span').textContent = currentSort.direction === 'asc' ? ' 🔼' : ' 🔽';
+    }
+
+    function sortData(column) {
+      if (currentSort.column === column) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentSort.column = column;
+        currentSort.direction = column === 'count' ? 'desc' : 'asc';
+      }
+
+      filteredData.sort((a, b) => {
+        let valA, valB;
+        if (column === 'author') {
+          valA = getLastName(a[0]);
+          valB = getLastName(b[0]);
+        } else {
+          valA = parseInt(a[1]);
+          valB = parseInt(b[1]);
+        }
+        if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+      renderTable();
+    }
+
+    // Funzionalità di ricerca
+    searchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      filteredData = authorsData.filter(author => 
+        String(author[0]).toLowerCase().includes(term)
+      );
+      renderTable();
+    });
+
+    // Click sulla riga della tabella autori
+    tbody.addEventListener('click', (e) => {
+      const row = e.target.closest('tr');
+      if (row) {
+        const authorName = row.cells[0].textContent;
+        filterBooksByAuthor(authorName);
+      }
+    });
+
+    // Ricerca libri per titolo
+    bookSearchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      filteredBooks = allBooks.filter(book => 
+        book.title.toLowerCase().includes(term)
+      );
+      renderBooksTable();
+    });
+
+    thAuthor.addEventListener('click', () => sortData('author'));
+    thCount.addEventListener('click', () => sortData('count'));
+
+    async function init() {
+      try {
+        const response = await fetch('/api/stats');
+        const stats = await response.json();
+        authorsData = stats.top_authors || [];
+        filteredData = [...authorsData];
+        
+        // Inizializza Grafico Top 20
+        if (window.Chart && document.getElementById('authorsChart')) {
+          const top20 = authorsData.slice(0, 20);
+          new Chart(document.getElementById('authorsChart'), {
+            type: 'bar',
+            data: {
+              labels: top20.map(a => String(a[0]).replace(/[\[\]"]/g, '')),
+              datasets: [{
+                label: 'Libri Letti',
+                data: top20.map(a => a[1]),
+                backgroundColor: 'rgba(102, 126, 234, 0.6)',
+                borderColor: 'rgba(102, 126, 234, 1)',
+                borderWidth: 1
+              }]
+            },
+            options: {
+              indexAxis: 'y',
+              responsive: true,
+              plugins: { legend: { display: false } },
+              scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } },
+              onClick: (e, elements, chart) => {
+                if (elements.length > 0) {
+                  const index = elements[0].index;
+                  const author = chart.data.labels[index];
+                  filterBooksByAuthor(author);
+                }
+              }
+            }
+          });
+        }
+
+        renderTable();
+
+        // Carica tutti i libri
+        const booksResponse = await fetch('/api/books');
+        allBooks = await booksResponse.json();
+        filteredBooks = [...allBooks];
+        renderBooksTable();
+
+      } catch (error) {
+        console.error('Error loading authors:', error);
+      }
+    }
+    init();
+  });
+</script>
