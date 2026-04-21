@@ -353,6 +353,11 @@
         document.addEventListener('DOMContentLoaded', () => {
             let authorsData = [];
             let filteredAuthorsData = [];
+            let allBooks = [];
+            let filteredBooks = [];
+            let advancedStats = null;
+            let currentSort = { column: 'date', direction: 'desc' };
+            
             // ============ COSTANTI ============
             
             const CALIBRE_BASE = 'http://192.168.1.5:8090';
@@ -554,9 +559,14 @@
                 activeTh.querySelector('span').textContent = currentSort.direction === 'asc' ? '▲' : '▼';
             }
 
-            thAuthor.addEventListener('click', () => sortAuthorsData('author'));
-            thCount.addEventListener('click', () => sortAuthorsData('count'));
-            thDate.addEventListener('click', () => sortAuthorsData('date'));
+            if (thAuthor && thCount && thDate) {
+                thAuthor.addEventListener('click', () => sortAuthorsData('author'));
+                thCount.addEventListener('click', () => sortAuthorsData('count'));
+                thDate.addEventListener('click', () => sortAuthorsData('date'));
+                console.log('✅ Event listeners per sorting aggiunti');
+            } else {
+                console.error('❌ Errore: Elementi header non trovati', { thAuthor, thCount, thDate });
+            }
 
             // ============ TABELLA LIBRI ============
 
