@@ -179,12 +179,29 @@ class BookEnricher {
 
     /**
      * Update book in database with enriched data
+     * Preserves original data for: title, authors, cover_url, description, tags, publisher
      * @param {Object} bookId - Book ID
      * @param {Object} enrichedData - Enriched book data
      * @returns {Promise<boolean>} Success status
      */
     async updateBookInDatabase(bookId, enrichedData) {
         try {
+            // First, get the original book data from database
+            const originalQuery = `
+                SELECT id, title, authors, publisher, published_date, description, 
+                       page_count, tags, language, isbn, cover_url, rating, 
+                       ratings_count, last_enriched, enrichment_sources
+                FROM read_books
+                WHERE id = $1
+            `;
+            const originalResult = await pool.query(originalQuery, [bookId]);
+            if (originalResult.rows.length === 0) {
+                console.warn(`Book with ID ${bookId} not found`);
+                return false;
+            }
+            
+            const original = originalResult.rows[0];
+
             // Normalize published date
             let publishedDate = null;
             if (enrichedData.publishedDate) {
@@ -204,23 +221,29 @@ class BookEnricher {
                 }
             }
 
-            // Map enriched data to database fields
+            // Build update data, preserving original values for specific fields
             const updateData = {
-                title: enrichedData.title,
-                authors: enrichedData.authors,
-                publisher: enrichedData.publisher,
-                published_date: publishedDate,
-                description: enrichedData.description,
-                page_count: enrichedData.pageCount,
-                categories: enrichedData.categories || enrichedData.subjects,
-                language: enrichedData.language,
-                isbn: enrichedData.isbn || (enrichedData.industryIdentifiers?.find(id => id.type === 'ISBN_13')?.identifier ||
-                                          enrichedData.industryIdentifiers?.find(id => id.type === 'ISBN_10')?.identifier),
-                cover_url: enrichedData.thumbnail || enrichedData.coverUrl,
-                average_rating: enrichedData.averageRating,
-                ratings_count: enrichedData.ratingsCount,
+                // NEVER override these fields - preserve original
+                title: original.title,
+                authors: original.authors,
+                
+                // Override with enriched data only if original is NULL/empty
+                publisher: original.publisher || enrichedData.publisher || null,
+                description: original.description || enrichedData.description || null,
+                cover_url: original.cover_url || enrichedData.thumbnail || enrichedData.coverUrl || null,
+                tags: original.tags || (enrichedData.categories || enrichedData.subjects || []),
+                
+                // Always update these with enriched data (can be null)
+                published_date: publishedDate || original.published_date,
+                page_count: enrichedData.pageCount || original.page_count,
+                language: enrichedData.language || original.language,
+                isbn: enrichedData.isbn || original.isbn || (enrichedData.industryIdentifiers?.find(id => id.type === 'ISBN_13')?.identifier ||
+                                                              enrichedData.industryIdentifiers?.find(id => id.type === 'ISBN_10')?.identifier ||
+                                                              original.isbn),
+                average_rating: enrichedData.averageRating || original.rating,
+                ratings_count: enrichedData.ratingsCount || original.ratings_count,
                 last_enriched: new Date().toISOString(),
-                enrichment_sources: enrichedData.sources?.join(', ') || 'google_books'
+                enrichment_sources: enrichedData.sources?.join(', ') || original.enrichment_sources || 'google_books'
             };
 
             // Update the book in database
@@ -252,7 +275,7 @@ class BookEnricher {
                 updateData.published_date,
                 updateData.description,
                 updateData.page_count,
-                JSON.stringify(updateData.categories || []),
+                JSON.stringify(updateData.tags || []),
                 updateData.language,
                 updateData.isbn,
                 updateData.cover_url,
