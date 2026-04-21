@@ -143,6 +143,34 @@ app.get('/api/books/search', async (req, res) => {
   }
 });
 
+// Proxy per le copertine Calibre
+app.get(/^\/cover\/(.*)$/, async (req, res) => {
+  const coverPath = req.params[0];
+  const CALIBRE_URL = process.env.CALIBRE_URL || 'http://192.168.1.5:8090';
+  const CALIBRE_USERNAME = process.env.CALIBRE_USERNAME || '';
+  const CALIBRE_PASSWORD = process.env.CALIBRE_PASSWORD || '';
+  
+  const url = `${CALIBRE_URL}/${coverPath}`;
+  
+  try {
+    const response = await axios.get(url, {
+      auth: {
+        username: CALIBRE_USERNAME,
+        password: CALIBRE_PASSWORD
+      },
+      responseType: 'stream',
+      timeout: 10000
+    });
+    
+    res.set('Content-Type', response.headers['content-type'] || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=3600'); // Cache per 1 ora
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('❌ Errore proxy copertina:', error.message);
+    res.status(500).send('Errore nel caricamento della copertina');
+  }
+});
+
 function startServer() {
   app.listen(PORT, () => {
     console.log('');

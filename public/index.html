@@ -289,8 +289,9 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <!-- Copertina (Sinistra) -->
                     <div class="md:col-span-1 flex items-start justify-center">
-                        <div id="modalCover" class="w-48 h-72 bg-slate-200 rounded-lg shadow-md flex items-center justify-center text-slate-400">
-                            <img id="modalCoverImg" src="" alt="Copertina" class="w-full h-full object-cover rounded-lg">
+                        <div id="modalCover" class="w-48 h-72 bg-slate-200 rounded-lg shadow-md flex items-center justify-center text-slate-400 relative">
+                            <img id="modalCoverImg" src="" alt="Copertina" class="w-full h-full object-cover rounded-lg" style="display: none;">
+                            <span id="modalCoverFallback" class="text-slate-400">📖 Copertina non disponibile</span>
                         </div>
                     </div>
 
@@ -352,10 +353,9 @@
         document.addEventListener('DOMContentLoaded', () => {
             let authorsData = [];
             let filteredAuthorsData = [];
-            let allBooks = [];
-            let filteredBooks = [];
-            let advancedStats = null;
-            let currentSort = { column: 'date', direction: 'desc' };
+            // ============ COSTANTI ============
+            
+            const CALIBRE_BASE = 'http://192.168.1.5:8090';
             
             // Elementi DOM
             const tbody = document.getElementById('authorsBody');
@@ -434,17 +434,29 @@
                     });
                 }
 
-                document.getElementById('modalDescription').textContent = book.description || '—';
-
                 // Copertina
                 const coverImg = document.getElementById('modalCoverImg');
-                if (book.cover_url) {
-                    coverImg.src = book.cover_url;
-                    coverImg.onerror = () => {
-                        document.getElementById('modalCover').innerHTML = '<span class="text-slate-400">📖 Copertina non disponibile</span>';
-                    };
-                } else {
-                    document.getElementById('modalCover').innerHTML = '<span class="text-slate-400">📖 Copertina non disponibile</span>';
+                const coverFallback = document.getElementById('modalCoverFallback');
+                
+                if (coverImg && coverFallback) {
+                    if (book.cover_url) {
+                        console.log('Original cover_url:', book.cover_url);
+                        const proxiedUrl = book.cover_url.replace(CALIBRE_BASE, '/cover');
+                        console.log('Proxied cover_url:', proxiedUrl);
+                        coverImg.src = proxiedUrl;
+                        coverImg.style.display = 'block';
+                        coverFallback.style.display = 'none';
+                        
+                        coverImg.onerror = () => {
+                            console.log('Failed to load cover:', proxiedUrl);
+                            coverImg.style.display = 'none';
+                            coverFallback.style.display = 'block';
+                        };
+                    } else {
+                        coverImg.src = '';
+                        coverImg.style.display = 'none';
+                        coverFallback.style.display = 'block';
+                    }
                 }
 
                 bookModal.classList.remove('hidden');
@@ -565,6 +577,7 @@
                     `;
                     
                     row.addEventListener('click', () => {
+                        console.log('Click on book:', book.title);
                         openBookModal(book);
                     });
                     
