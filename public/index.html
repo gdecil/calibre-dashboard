@@ -464,6 +464,9 @@
                     }
                 }
 
+                // Descrizione
+                document.getElementById('modalDescription').textContent = book.description || 'Nessuna descrizione disponibile';
+
                 bookModal.classList.remove('hidden');
                 document.body.style.overflow = 'hidden';
             }
@@ -476,6 +479,11 @@
             closeModalBtn.addEventListener('click', closeBookModal);
             modalOverlay.addEventListener('click', (e) => {
                 if (e.target === modalOverlay) closeBookModal();
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !bookModal.classList.contains('hidden')) {
+                    closeBookModal();
+                }
             });
 
             // ============ TABELLA AUTORI ============
