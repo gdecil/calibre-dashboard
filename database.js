@@ -1,5 +1,11 @@
 const { Pool } = require('pg');
 require('dotenv').config();
+const useCalibreSqlite = Boolean(process.env.CALIBRE_DB_PATH);
+const calibreDatabase = useCalibreSqlite ? require('./calibre-database') : null;
+
+function getCoverPath(bookId) {
+    return useCalibreSqlite ? calibreDatabase.getCoverPath(bookId) : null;
+}
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -9,6 +15,11 @@ const pool = new Pool({
 // Inizializza il database
 async function initializeDatabase() {
     try {
+        if (useCalibreSqlite) {
+            calibreDatabase.initializeDatabase();
+            return true;
+        }
+
         await pool.query('SELECT 1');
         console.log('✅ Connessione al database stabilita');
         return true;
@@ -89,6 +100,8 @@ async function cleanupOldBackups() {
 // Ottieni libri letti
 async function getReadBooks() {
     try {
+        if (useCalibreSqlite) return calibreDatabase.getReadBooks();
+
         const query = `
             SELECT * FROM read_books
             ORDER BY read_at DESC, title ASC
@@ -104,6 +117,8 @@ async function getReadBooks() {
 // Ottieni statistiche
 async function getStats() {
     try {
+        if (useCalibreSqlite) return calibreDatabase.getStats();
+
         const [totalQuery, readQuery, topAuthorsQuery, topGenresQuery, ratingsQuery, authorsCountQuery] = await Promise.all([
             pool.query('SELECT COUNT(*) as total FROM read_books'),
             pool.query('SELECT COUNT(*) as read FROM read_books'),
@@ -203,6 +218,8 @@ async function upsertBook(book) {
 // Ricerca libri
 async function searchBooks(query) {
     try {
+        if (useCalibreSqlite) return calibreDatabase.searchBooks(query);
+
         const searchQuery = `
             SELECT * FROM read_books
             WHERE LOWER(title) LIKE LOWER($1)
@@ -221,6 +238,8 @@ async function searchBooks(query) {
 // Ottieni statistiche avanzate
 async function getAdvancedStats() {
     try {
+        if (useCalibreSqlite) return calibreDatabase.getAdvancedStats();
+
         const [ratingDistQuery, yearDistQuery, languageDistQuery, genreDistQuery] = await Promise.all([
             pool.query(`
                 SELECT rating, COUNT(*) as count 
@@ -275,6 +294,7 @@ module.exports = {
     getAdvancedStats,
     upsertBook,
     searchBooks,
+    getCoverPath,
     testDatabaseConnection,
     pool
 };

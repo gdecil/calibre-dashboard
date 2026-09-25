@@ -445,15 +445,11 @@
                 
                 if (coverImg && coverFallback) {
                     if (book.cover_url) {
-                        console.log('Original cover_url:', book.cover_url);
-                        const proxiedUrl = book.cover_url.replace(CALIBRE_BASE, '/cover');
-                        console.log('Proxied cover_url:', proxiedUrl);
-                        coverImg.src = proxiedUrl;
+                        coverImg.src = book.cover_url;
                         coverImg.style.display = 'block';
                         coverFallback.style.display = 'none';
                         
                         coverImg.onerror = () => {
-                            console.log('Failed to load cover:', proxiedUrl);
                             coverImg.style.display = 'none';
                             coverFallback.style.display = 'block';
                         };

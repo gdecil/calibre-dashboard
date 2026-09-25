@@ -6,7 +6,7 @@ const { CronJob } = require('node-cron');
 
 // Forza ricaricamento del modulo database per evitare cache
 delete require.cache[require.resolve('./database')];
-const { initializeDatabase, getReadBooks, getStats, getAdvancedStats, searchBooks } = require('./database');
+const { initializeDatabase, getReadBooks, getStats, getAdvancedStats, searchBooks, getCoverPath } = require('./database');
 const { startSyncWorker } = require('./sync-worker');
 require('dotenv').config();
 
@@ -21,7 +21,11 @@ app.use(express.static('public'));
         // La connessione al server Calibre avviene solo durante gli aggiornamenti del database
         initializeDatabase().then(() => {
             console.log('✅ Database inizializzato');
+          if (process.env.CALIBRE_DB_PATH) {
+            console.log('📚 Lettura diretta dal database SQLite di Calibre attiva');
+          } else {
             startSyncWorker();
+          }
         }).catch(error => {
             console.error('❌ Errore inizializzazione:', error.message);
             process.exit(1);
@@ -146,6 +150,25 @@ app.get('/api/books/search', async (req, res) => {
 // Proxy per le copertine Calibre
 app.get(/^\/cover\/(.*)$/, async (req, res) => {
   const coverPath = req.params[0];
+
+  if (process.env.CALIBRE_DB_PATH) {
+    try {
+      const filePath = getCoverPath(coverPath);
+      if (!filePath) return res.status(404).send('Copertina non disponibile');
+
+      return res.sendFile(filePath, {
+        headers: {
+          'Cache-Control': 'public, max-age=3600'
+        }
+      }, (error) => {
+        if (error && !res.headersSent) res.status(error.statusCode || 500).send('Errore nel caricamento della copertina');
+      });
+    } catch (error) {
+      console.error('❌ Errore lettura copertina Calibre:', error.message);
+      return res.status(500).send('Errore nel caricamento della copertina');
+    }
+  }
+
   const CALIBRE_URL = process.env.CALIBRE_URL || 'http://192.168.1.5:8090';
   const CALIBRE_USERNAME = process.env.CALIBRE_USERNAME || '';
   const CALIBRE_PASSWORD = process.env.CALIBRE_PASSWORD || '';
@@ -180,7 +203,7 @@ function startServer() {
   });
 }
 
-if (!process.env.CALIBRE_URL) {
+if (!process.env.CALIBRE_URL && !process.env.CALIBRE_DB_PATH) {
   console.log('📚 Calibre Dashboard');
   console.log('====================');
   const readline = require('readline');
