@@ -11,6 +11,10 @@ const { initializeDatabase, getReadBooks, getStats, getAdvancedStats, searchBook
 const { startSyncWorker } = require('./sync-worker');
 const { groupSearchResults } = require('./services/semantic-search');
 const {
+  FullTextIndexUnavailableError,
+  searchExactOccurrences
+} = require('./services/lexical-search');
+const {
   INSUFFICIENT_EVIDENCE,
   buildGroundedContext,
   validateCitations
@@ -22,6 +26,10 @@ const PORT = process.env.PORT || 3000;
 const AI_DB_PATH = process.env.CALIBRE_AI_DB_PATH || path.resolve(__dirname, '..', 'calibre-ai', 'data', 'calibre.db');
 const AI_QDRANT_URL = (process.env.AI_QDRANT_URL || 'http://localhost:6333').replace(/\/$/, '');
 const AI_QDRANT_COLLECTION = process.env.AI_QDRANT_COLLECTION || 'calibre_chunks_disk';
+const AI_QDRANT_SEARCH_TIMEOUT_MS = Math.max(
+  Number.parseInt(process.env.AI_QDRANT_SEARCH_TIMEOUT_MS, 10) || 180000,
+  10000
+);
 const AI_OLLAMA_URL = process.env.AI_OLLAMA_URL || 'http://localhost:11434/api/embed';
 const AI_EMBEDDING_MODEL = process.env.AI_EMBEDDING_MODEL || 'qwen3-embedding';
 const AI_OLLAMA_CHAT_URL = process.env.AI_OLLAMA_CHAT_URL || 'http://localhost:11434/api/chat';
@@ -88,22 +96,47 @@ function getAiChunkTexts(chunkIds) {
   }
 }
 
+function wrapAiDependencyError(stage, error) {
+  const responseError = error.response?.data?.error || error.response?.data?.status?.error;
+  const detail = typeof responseError === 'string' ? responseError : error.message;
+  const wrapped = new Error(`${stage}: ${detail}`);
+  wrapped.stage = stage;
+  wrapped.upstreamStatus = error.response?.status;
+  return wrapped;
+}
+
 async function retrieveAiChunks(query, limit) {
-  const embeddingResponse = await axios.post(
-    AI_OLLAMA_URL,
-    { model: AI_EMBEDDING_MODEL, input: [query] },
-    { timeout: 120000 }
-  );
+  let embeddingResponse;
+  try {
+    embeddingResponse = await axios.post(
+      AI_OLLAMA_URL,
+      { model: AI_EMBEDDING_MODEL, input: [query] },
+      { timeout: 120000 }
+    );
+  } catch (error) {
+    throw wrapAiDependencyError('Ollama embedding', error);
+  }
   const vector = embeddingResponse.data.embeddings?.[0];
   if (!vector) throw new Error('Ollama non ha restituito un embedding');
 
-  const searchResponse = await axios.post(
-    `${AI_QDRANT_URL}/collections/${AI_QDRANT_COLLECTION}/points/query`,
-    { query: vector, limit, with_payload: true },
-    { timeout: 30000 }
-  );
+  let searchResponse;
+  try {
+    searchResponse = await axios.post(
+      `${AI_QDRANT_URL}/collections/${AI_QDRANT_COLLECTION}/points/query`,
+      { query: vector, limit, with_payload: true, params: { indexed_only: true } },
+      {
+        timeout: AI_QDRANT_SEARCH_TIMEOUT_MS + 10000,
+        params: { timeout: Math.ceil(AI_QDRANT_SEARCH_TIMEOUT_MS / 1000) }
+      }
+    );
+  } catch (error) {
+    throw wrapAiDependencyError('Ricerca Qdrant', error);
+  }
 
   const points = searchResponse.data.result?.points || [];
+  if (searchResponse.data.time > 15) {
+    console.warn(`Ricerca Qdrant lenta: ${searchResponse.data.time}s (${points.length} risultati)`);
+  }
   const chunkIds = points.map((point) => point.payload?.chunk_id ?? point.id);
   const chunkTexts = getAiChunkTexts(chunkIds);
 
@@ -174,13 +207,51 @@ app.get('/api/ai/search', async (req, res) => {
     });
   } catch (error) {
     console.error('Errore ricerca AI:', error.message);
-    res.status(503).json({ error: 'Ricerca semantica non disponibile', details: error.message });
+    res.status(503).json({
+      error: 'Ricerca semantica non disponibile',
+      details: error.message,
+      stage: error.stage || 'lettura dei passaggi',
+      upstream_status: error.upstreamStatus || null
+    });
+  }
+});
+
+app.get('/api/ai/occurrences', (req, res) => {
+  const query = String(req.query.q || '').trim();
+  const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 100, 1), 250);
+  const excerptsPerBook = Math.min(Math.max(Number.parseInt(req.query.per_book, 10) || 3, 1), 10);
+  if (!query) return res.json({ query, results: [], matched_chunks: 0, has_more: false });
+  if (query.length > 200) {
+    return res.status(400).json({ error: 'La ricerca non può superare 200 caratteri' });
+  }
+
+  let database;
+  try {
+    database = new SqliteDatabase(AI_DB_PATH, { readonly: true, fileMustExist: true });
+    const result = searchExactOccurrences(database, query, {
+      limit,
+      excerptsPerBook,
+      chunkBudget: 5000
+    });
+    res.json(result);
+  } catch (error) {
+    if (error instanceof FullTextIndexUnavailableError) {
+      return res.status(503).json({
+        error: error.message,
+        code: error.code,
+        index_state: error.state
+      });
+    }
+    console.error('Errore ricerca per occorrenze:', error.message);
+    res.status(503).json({ error: 'Ricerca testuale non disponibile', details: error.message });
+  } finally {
+    if (database) database.close();
   }
 });
 
 app.post('/api/ai/ask', async (req, res) => {
   const question = String(req.body?.question || '').trim();
-  const limit = Math.min(Math.max(Number.parseInt(req.body?.limit, 10) || 5, 1), 8);
+  const limit = Math.min(Math.max(Number.parseInt(req.body?.limit, 10) || 4, 1), 6);
   if (!question) return res.status(400).json({ error: 'La domanda è obbligatoria' });
   if (question.length > 1000) {
     return res.status(400).json({ error: 'La domanda non può superare 1000 caratteri' });
@@ -190,34 +261,70 @@ app.post('/api/ai/ask', async (req, res) => {
     const chunks = await retrieveAiChunks(question, limit);
     const context = buildGroundedContext(question, chunks);
     if (!context.sources.length) {
-      return res.json({ answer: INSUFFICIENT_EVIDENCE, sources: [] });
+      return res.json({
+        answer: INSUFFICIENT_EVIDENCE,
+        status: 'insufficient_evidence',
+        reason: 'no_retrieved_passages',
+        sources: []
+      });
     }
 
-    const response = await axios.post(
-      AI_OLLAMA_CHAT_URL,
-      {
-        model: AI_CHAT_MODEL,
-        stream: false,
-        options: { temperature: 0 },
-        messages: context.messages
-      },
-      { timeout: 180000 }
-    );
+    let response;
+    try {
+      response = await axios.post(
+        AI_OLLAMA_CHAT_URL,
+        {
+          model: AI_CHAT_MODEL,
+          stream: false,
+          options: { temperature: 0, num_ctx: 4096, num_predict: 384 },
+          messages: context.messages
+        },
+        { timeout: 180000 }
+      );
+    } catch (error) {
+      throw wrapAiDependencyError('Generazione Ollama', error);
+    }
     const answer = String(response.data.message?.content || '').trim();
+    if (answer === INSUFFICIENT_EVIDENCE) {
+      return res.json({
+        answer: INSUFFICIENT_EVIDENCE,
+        status: 'insufficient_evidence',
+        reason: 'model_abstained',
+        sources: context.sources.map(({ text, prompt_excerpt, ...source }) => ({
+          ...source,
+          excerpt: prompt_excerpt.slice(0, 700)
+        }))
+      });
+    }
+
     const citationCheck = validateCitations(answer, context.sources);
     if (!citationCheck.valid) {
-      return res.json({ answer: INSUFFICIENT_EVIDENCE, sources: [] });
+      console.warn(`Risposta RAG scartata: citazioni non valide (${citationCheck.reason})`);
+      return res.status(502).json({
+        error: 'Il modello ha risposto senza citazioni valide per i passaggi recuperati.',
+        code: 'invalid_citations',
+        reason: citationCheck.reason
+      });
     }
 
     res.json({
       answer,
+      status: 'answered',
       sources: context.sources
         .filter((source) => citationCheck.citations.includes(source.citation))
-        .map(({ text, ...source }) => ({ ...source, excerpt: text.slice(0, 700) }))
+        .map(({ text, prompt_excerpt, ...source }) => ({
+          ...source,
+          excerpt: prompt_excerpt.slice(0, 700)
+        }))
     });
   } catch (error) {
     console.error('Errore domanda AI:', error.message);
-    res.status(503).json({ error: 'Risposta AI non disponibile', details: error.message });
+    res.status(503).json({
+      error: 'Risposta AI non disponibile',
+      details: error.message,
+      stage: error.stage || 'preparazione risposta',
+      upstream_status: error.upstreamStatus || null
+    });
   }
 });
 

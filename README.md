@@ -48,13 +48,26 @@ Access the dashboard at `http://localhost:3000` in your web browser.
 - `GET /api/stats` - Get reading statistics
 - `GET /opds` - OPDS feed
 - `GET /api/ai/search?q=...` - Semantic search grouped by book
+- `GET /api/ai/occurrences?q=...` - Exact text matches grouped by book
 - `POST /api/ai/ask` - Ask a question using retrieved passages and citations
 
-The semantic analysis page is available at `/analysis.html`. AI endpoints require
-the local Ollama and Qdrant services. Question answering uses `mistral-nemo` by
-default; configure `AI_CHAT_MODEL` and `AI_OLLAMA_CHAT_URL` to use another Ollama
-chat model or endpoint. Answers are restricted to retrieved passages and are
-rejected when they do not cite a retrieved source.
+The semantic analysis page is available at `/analysis.html`. Semantic search and
+question answering require local Ollama and Qdrant services. Question answering
+uses `mistral-nemo` by default; configure `AI_CHAT_MODEL` and
+`AI_OLLAMA_CHAT_URL` to use another Ollama chat model or endpoint. Answers are
+restricted to retrieved passages and rejected when they do not cite a retrieved
+source. Retrieved passages are a limited sample, so list answers are not
+guaranteed to be exhaustive.
+
+Exact occurrence search uses a local SQLite FTS5 index. Build it once, with the
+Calibre AI indexer stopped, by running from `calibre-ai`:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\build_fulltext_index.py
+```
+
+The index is kept up to date by SQLite triggers when future extractions insert,
+update, or delete chunks.
 
 ## Development
 

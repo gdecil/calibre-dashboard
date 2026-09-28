@@ -31,6 +31,9 @@
     .index-meta { color: var(--muted); margin: -14px 0 25px; font: 12px/1.5 Arial, sans-serif; }
     .search { display: flex; gap: 10px; margin-bottom: 28px; }
     .ask-panel { border-top: 1px solid var(--line); margin-top: 46px; padding-top: 28px; }
+    .occurrence-panel { border-top: 1px solid var(--line); margin-top: 38px; padding-top: 26px; }
+    .occurrence-panel h2 { margin: 0 0 16px; font-size: 24px; font-weight: 500; }
+    .result-count { color: var(--green); font: 700 12px Arial, sans-serif; white-space: nowrap; }
     .ask-panel h2 { margin: 0 0 16px; font-size: 24px; font-weight: 500; }
     .answer-card { background: var(--panel); border: 1px solid var(--line); padding: 20px 22px; }
     .answer-text { margin: 0; font-size: 17px; line-height: 1.6; white-space: pre-wrap; }
@@ -78,6 +81,15 @@
 
     <section id="results" aria-live="polite"><div class="empty">Scrivi una query per cercare nei testi indicizzati.</div></section>
 
+    <section class="occurrence-panel" aria-labelledby="occurrencesHeading">
+      <h2 id="occurrencesHeading">Ricerca esatta nei testi</h2>
+      <form id="occurrenceForm" class="search">
+        <input id="occurrenceQuery" type="search" placeholder="Cerca un nome, per esempio Parker..." autocomplete="off">
+        <button type="submit">Trova occorrenze</button>
+      </form>
+      <section id="occurrenceResults" aria-live="polite"><div class="empty">Trova i passaggi che contengono esattamente i termini inseriti.</div></section>
+    </section>
+
     <section class="ask-panel" aria-labelledby="askHeading">
       <h2 id="askHeading">Domande con fonti</h2>
       <form id="askForm" class="search">
@@ -92,6 +104,7 @@
     const statusNotice = document.getElementById('notice');
     const results = document.getElementById('results');
     const answer = document.getElementById('answer');
+    const occurrenceResults = document.getElementById('occurrenceResults');
 
     async function loadStatus() {
       try {
@@ -149,6 +162,41 @@
       return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
     }
 
+    function askReasonLabel(reason) {
+      return ({
+        no_retrieved_passages: 'Nessun passaggio testuale è stato recuperato per questa domanda.',
+        model_abstained: 'I passaggi sono stati recuperati, ma il modello non li considera sufficienti per rispondere.',
+        no_citations: 'Il modello non ha citato i passaggi usati.',
+        unknown_citation: 'Il modello ha indicato una citazione non presente tra le fonti recuperate.',
+        uncited_lines: 'Una o più righe della risposta non hanno una citazione.'
+      })[reason] || '';
+    }
+
+    function renderOccurrences(data) {
+      if (!data.results.length) {
+        occurrenceResults.innerHTML = '<div class="empty">Nessuna corrispondenza esatta nell\'indice disponibile.</div>';
+        return;
+      }
+      const coverageNote = data.is_complete
+        ? `Indice completo: ${format(data.indexed_chunks)} chunk.`
+        : `Indice parziale: ${format(data.indexed_chunks)} di ${format(data.total_chunks)} chunk.`;
+      const limitNote = data.has_more
+        ? ` Limite raggiunto: ${format(data.matched_chunks)} passaggi esaminati; ${format(data.matched_books)} libri nel campione, ${format(data.results.length)} mostrati. Risultati parziali.`
+        : '';
+      occurrenceResults.innerHTML = `
+        <p class="meta">${escapeHtml(coverageNote + limitNote)}</p>
+        ${data.results.map((book) => `
+          <article class="result">
+            <div class="result-head"><h2>${escapeHtml(book.book_title)}</h2><span class="result-count">${format(book.matching_chunks)} passaggi</span></div>
+            <div class="meta">${escapeHtml(book.authors || '')}</div>
+            ${book.excerpts.map((excerpt) => `
+              <div class="excerpt-item">
+                <p class="citation">${escapeHtml(excerpt.chapter_title || 'Estratto')} · Chunk ${escapeHtml(excerpt.chunk_id)}</p>
+                <p class="excerpt">${escapeHtml(excerpt.text || '')}</p>
+              </div>`).join('')}
+          </article>`).join('')}`;
+    }
+
     document.getElementById('searchForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const query = document.getElementById('query').value.trim();
@@ -164,6 +212,21 @@
       }
     });
 
+    document.getElementById('occurrenceForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const query = document.getElementById('occurrenceQuery').value.trim();
+      if (!query) return;
+      occurrenceResults.innerHTML = '<div class="empty">Cerco le occorrenze esatte...</div>';
+      try {
+        const response = await fetch(`/api/ai/occurrences?q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.details || data.error);
+        renderOccurrences(data);
+      } catch (error) {
+        occurrenceResults.innerHTML = `<div class="empty">Ricerca esatta non disponibile: ${escapeHtml(error.message)}</div>`;
+      }
+    });
+
     document.getElementById('askForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const question = document.getElementById('question').value.trim();
@@ -176,11 +239,16 @@
           body: JSON.stringify({ question })
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.details || data.error);
+        if (!response.ok) {
+          const reason = askReasonLabel(data.reason);
+          throw new Error([data.details || data.error, reason].filter(Boolean).join(' '));
+        }
         const sources = Array.isArray(data.sources) ? data.sources : [];
+        const reason = askReasonLabel(data.reason);
         answer.innerHTML = `
           <article class="answer-card">
             <p class="answer-text">${escapeHtml(data.answer || 'Risposta non disponibile.')}</p>
+            ${reason ? `<p class="meta">${escapeHtml(reason)}</p>` : ''}
             ${sources.length ? `
               <div class="source-list">
                 <h3>Fonti</h3>
