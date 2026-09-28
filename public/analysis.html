@@ -29,7 +29,14 @@
     .stat span { color: var(--muted); font: 12px Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; }
     .notice { background: #f8dfd2; border-left: 5px solid var(--accent); padding: 14px 17px; margin-bottom: 25px; font: 14px/1.45 Arial, sans-serif; }
     .index-meta { color: var(--muted); margin: -14px 0 25px; font: 12px/1.5 Arial, sans-serif; }
-    .search { display: flex; gap: 10px; margin-bottom: 28px; }
+    .search-dock { position: sticky; top: 8px; z-index: 10; margin: 0 0 22px; padding: 10px; background: rgba(255, 253, 248, .97); border: 1px solid var(--line); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+    .mode-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+    .mode-tab { min-height: 40px; padding: 0 14px; color: var(--muted); background: transparent; border-bottom: 3px solid transparent; }
+    .mode-tab:hover { color: var(--ink); background: rgba(214, 90, 58, .07); }
+    .mode-tab[aria-selected="true"] { color: var(--accent-dark); border-bottom-color: var(--accent); }
+    .search-form { display: flex; gap: 10px; margin: 0; }
+    .search-form input, .search-form button { min-height: 48px; }
+    .results-panel[hidden], .search-form[hidden] { display: none !important; }
     .ask-panel { border-top: 1px solid var(--line); margin-top: 46px; padding-top: 28px; }
     .occurrence-panel { border-top: 1px solid var(--line); margin-top: 38px; padding-top: 26px; }
     .occurrence-panel h2 { margin: 0 0 16px; font-size: 24px; font-weight: 500; }
@@ -54,7 +61,16 @@
     .excerpt-item + .excerpt-item { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
     .citation { color: var(--green); margin: 0 0 7px; font: 700 11px Arial, sans-serif; text-transform: uppercase; }
     .empty { color: var(--muted); border: 1px dashed var(--line); padding: 28px; font: 15px Arial, sans-serif; }
-    @media (max-width: 720px) { header { align-items: start; flex-direction: column; } .status { grid-template-columns: repeat(2, 1fr); } .search { flex-direction: column; } button { min-height: 50px; } }
+    @media (max-width: 720px) {
+      main { width: min(100% - 20px, 1120px); padding-top: 24px; }
+      header { align-items: start; flex-direction: column; }
+      .status { grid-template-columns: repeat(2, 1fr); }
+      .search-dock { top: 0; margin-inline: -10px; padding: 8px 10px 10px; }
+      .mode-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .mode-tab { padding: 0 5px; font-size: 12px; }
+      .search-form { flex-direction: column; gap: 8px; }
+      .search-form button { min-height: 46px; }
+    }
   </style>
 </head>
 <body>
@@ -74,28 +90,33 @@
     <div id="notice" class="notice">Controllo stato indice...</div>
     <div id="embeddingMeta" class="index-meta" aria-live="polite"></div>
 
-    <form id="searchForm" class="search">
-      <input id="query" type="search" placeholder="Cerca un'idea, un tema o una domanda..." autocomplete="off">
-      <button type="submit">Cerca nella biblioteca</button>
-    </form>
-
-    <section id="results" aria-live="polite"><div class="empty">Scrivi una query per cercare nei testi indicizzati.</div></section>
-
-    <section class="occurrence-panel" aria-labelledby="occurrencesHeading">
-      <h2 id="occurrencesHeading">Ricerca esatta nei testi</h2>
-      <form id="occurrenceForm" class="search">
+    <section class="search-dock" aria-label="Ricerca nella biblioteca">
+      <div class="mode-tabs" role="tablist" aria-label="Modalità di ricerca">
+        <button id="semanticTab" class="mode-tab" type="button" role="tab" aria-selected="true" aria-controls="searchForm">Semantica</button>
+        <button id="occurrenceTab" class="mode-tab" type="button" role="tab" aria-selected="false" aria-controls="occurrenceForm" tabindex="-1">Occorrenze</button>
+        <button id="askTab" class="mode-tab" type="button" role="tab" aria-selected="false" aria-controls="askForm" tabindex="-1">Domande con fonti</button>
+      </div>
+      <form id="searchForm" class="search-form" role="tabpanel" aria-labelledby="semanticTab">
+        <input id="query" type="search" placeholder="Cerca un'idea, un tema o una domanda..." autocomplete="off">
+        <button type="submit">Cerca nella biblioteca</button>
+      </form>
+      <form id="occurrenceForm" class="search-form" role="tabpanel" aria-labelledby="occurrenceTab" hidden>
         <input id="occurrenceQuery" type="search" placeholder="Cerca un nome, per esempio Parker..." autocomplete="off">
         <button type="submit">Trova occorrenze</button>
       </form>
-      <section id="occurrenceResults" aria-live="polite"><div class="empty">Trova i passaggi che contengono esattamente i termini inseriti.</div></section>
-    </section>
-
-    <section class="ask-panel" aria-labelledby="askHeading">
-      <h2 id="askHeading">Domande con fonti</h2>
-      <form id="askForm" class="search">
+      <form id="askForm" class="search-form" role="tabpanel" aria-labelledby="askTab" hidden>
         <input id="question" type="search" placeholder="Fai una domanda sui testi della biblioteca..." autocomplete="off">
         <button type="submit">Rispondi con fonti</button>
       </form>
+    </section>
+
+    <section id="semanticResults" class="results-panel" role="tabpanel" aria-labelledby="semanticTab">
+      <section id="results" aria-live="polite"><div class="empty">Scrivi una query per cercare nei testi indicizzati.</div></section>
+    </section>
+    <section id="occurrenceResultsPanel" class="results-panel" role="tabpanel" aria-labelledby="occurrenceTab" hidden>
+      <section id="occurrenceResults" aria-live="polite"><div class="empty">Trova i passaggi che contengono esattamente i termini inseriti.</div></section>
+    </section>
+    <section id="askResults" class="results-panel ask-panel" role="tabpanel" aria-labelledby="askTab" hidden>
       <section id="answer" aria-live="polite"><div class="empty">Le risposte useranno solo i passaggi recuperati.</div></section>
     </section>
   </main>
@@ -105,6 +126,42 @@
     const results = document.getElementById('results');
     const answer = document.getElementById('answer');
     const occurrenceResults = document.getElementById('occurrenceResults');
+    const modeTabs = [...document.querySelectorAll('.mode-tab')];
+    const modeForms = [
+      document.getElementById('searchForm'),
+      document.getElementById('occurrenceForm'),
+      document.getElementById('askForm')
+    ];
+    const resultPanels = [
+      document.getElementById('semanticResults'),
+      document.getElementById('occurrenceResultsPanel'),
+      document.getElementById('askResults')
+    ];
+
+    function selectMode(selectedIndex) {
+      modeTabs.forEach((tab, index) => {
+        const selected = index === selectedIndex;
+        tab.setAttribute('aria-selected', String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        modeForms[index].hidden = !selected;
+        resultPanels[index].hidden = !selected;
+      });
+    }
+
+    modeTabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => selectMode(index));
+      tab.addEventListener('keydown', (event) => {
+        let nextIndex = index;
+        if (event.key === 'ArrowRight') nextIndex = (index + 1) % modeTabs.length;
+        else if (event.key === 'ArrowLeft') nextIndex = (index + modeTabs.length - 1) % modeTabs.length;
+        else if (event.key === 'Home') nextIndex = 0;
+        else if (event.key === 'End') nextIndex = modeTabs.length - 1;
+        else return;
+        event.preventDefault();
+        selectMode(nextIndex);
+        modeTabs[nextIndex].focus();
+      });
+    });
 
     async function loadStatus() {
       try {
