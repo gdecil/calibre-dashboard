@@ -2,20 +2,224 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const path = require('path');
+const SqliteDatabase = require('better-sqlite3');
 const { CronJob } = require('node-cron');
 
 // Forza ricaricamento del modulo database per evitare cache
 delete require.cache[require.resolve('./database')];
 const { initializeDatabase, getReadBooks, getStats, getAdvancedStats, searchBooks, getCoverPath } = require('./database');
 const { startSyncWorker } = require('./sync-worker');
+const { groupSearchResults } = require('./services/semantic-search');
+const {
+  INSUFFICIENT_EVIDENCE,
+  buildGroundedContext,
+  validateCitations
+} = require('./services/ai-rag');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const AI_DB_PATH = process.env.CALIBRE_AI_DB_PATH || path.resolve(__dirname, '..', 'calibre-ai', 'data', 'calibre.db');
+const AI_QDRANT_URL = (process.env.AI_QDRANT_URL || 'http://localhost:6333').replace(/\/$/, '');
+const AI_QDRANT_COLLECTION = process.env.AI_QDRANT_COLLECTION || 'calibre_chunks_disk';
+const AI_OLLAMA_URL = process.env.AI_OLLAMA_URL || 'http://localhost:11434/api/embed';
+const AI_EMBEDDING_MODEL = process.env.AI_EMBEDDING_MODEL || 'qwen3-embedding';
+const AI_OLLAMA_CHAT_URL = process.env.AI_OLLAMA_CHAT_URL || 'http://localhost:11434/api/chat';
+const AI_CHAT_MODEL = process.env.AI_CHAT_MODEL || 'mistral-nemo';
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
+
+function getAiSqliteStats() {
+  const database = new SqliteDatabase(AI_DB_PATH, { readonly: true, fileMustExist: true });
+  try {
+    const count = (table) => database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count;
+    const indexed = database.prepare(`
+      SELECT COUNT(DISTINCT chunk_id) AS count
+      FROM embedding_index
+      WHERE collection = ?
+    `).get(AI_QDRANT_COLLECTION).count;
+    const embeddingColumns = new Set(
+      database.prepare('PRAGMA table_info(embedding_index)').all().map((column) => column.name)
+    );
+    const modelDigestColumn = embeddingColumns.has('model_digest') ? 'model_digest' : 'NULL';
+    const indexerVersionColumn = embeddingColumns.has('indexer_version') ? 'indexer_version' : 'NULL';
+    const embeddingIndexes = database.prepare(`
+      SELECT
+        model,
+        dimensions,
+        ${modelDigestColumn} AS model_digest,
+        ${indexerVersionColumn} AS indexer_version,
+        COUNT(DISTINCT chunk_id) AS indexed_chunks,
+        MIN(indexed_at) AS first_indexed_at,
+        MAX(indexed_at) AS last_indexed_at
+      FROM embedding_index
+      WHERE collection = ?
+      GROUP BY model, dimensions, ${modelDigestColumn}, ${indexerVersionColumn}
+      ORDER BY MAX(indexed_at) DESC
+    `).all(AI_QDRANT_COLLECTION);
+
+    return {
+      books: count('books'),
+      extracted_books: count('extracted_books'),
+      chapters: count('extracted_chapters'),
+      chunks: count('extracted_chunks'),
+      indexed_chunks: indexed,
+      embedding_indexes: embeddingIndexes
+    };
+  } finally {
+    database.close();
+  }
+}
+
+function getAiChunkTexts(chunkIds) {
+  if (!chunkIds.length) return new Map();
+
+  const database = new SqliteDatabase(AI_DB_PATH, { readonly: true, fileMustExist: true });
+  try {
+    const placeholders = chunkIds.map(() => '?').join(',');
+    const rows = database.prepare(
+      `SELECT id, text FROM extracted_chunks WHERE id IN (${placeholders})`
+    ).all(...chunkIds);
+    return new Map(rows.map((row) => [row.id, row.text]));
+  } finally {
+    database.close();
+  }
+}
+
+async function retrieveAiChunks(query, limit) {
+  const embeddingResponse = await axios.post(
+    AI_OLLAMA_URL,
+    { model: AI_EMBEDDING_MODEL, input: [query] },
+    { timeout: 120000 }
+  );
+  const vector = embeddingResponse.data.embeddings?.[0];
+  if (!vector) throw new Error('Ollama non ha restituito un embedding');
+
+  const searchResponse = await axios.post(
+    `${AI_QDRANT_URL}/collections/${AI_QDRANT_COLLECTION}/points/query`,
+    { query: vector, limit, with_payload: true },
+    { timeout: 30000 }
+  );
+
+  const points = searchResponse.data.result?.points || [];
+  const chunkIds = points.map((point) => point.payload?.chunk_id ?? point.id);
+  const chunkTexts = getAiChunkTexts(chunkIds);
+
+  return points.map((point) => {
+    const payload = point.payload || {};
+    const chunkId = payload.chunk_id ?? point.id;
+    return {
+      id: point.id,
+      score: point.score,
+      ...payload,
+      text: chunkTexts.get(chunkId) || payload.text || ''
+    };
+  });
+}
+
+async function getAiQdrantStats() {
+  const response = await axios.get(
+    `${AI_QDRANT_URL}/collections/${AI_QDRANT_COLLECTION}`,
+    { timeout: 10000 }
+  );
+  const result = response.data.result;
+  return {
+    status: result.status,
+    points: result.points_count,
+    indexed_vectors: result.indexed_vectors_count,
+    segments: result.segments_count
+  };
+}
+
+app.get('/api/ai/index-status', async (req, res) => {
+  try {
+    const sqlite = getAiSqliteStats();
+    let qdrant = null;
+    let qdrantError = null;
+
+    try {
+      qdrant = await getAiQdrantStats();
+    } catch (error) {
+      qdrantError = error.message;
+    }
+
+    res.json({
+      database: sqlite,
+      qdrant,
+      qdrant_error: qdrantError,
+      coverage: sqlite.chunks ? Math.round((sqlite.indexed_chunks / sqlite.chunks) * 1000) / 10 : 0,
+      collection: AI_QDRANT_COLLECTION,
+      embedding_model: AI_EMBEDDING_MODEL,
+      embedding_indexes: sqlite.embedding_indexes
+    });
+  } catch (error) {
+    res.status(503).json({ error: 'Indice AI non disponibile', details: error.message });
+  }
+});
+
+app.get('/api/ai/search', async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 10, 1), 50);
+  const excerptsPerBook = Math.min(Math.max(Number.parseInt(req.query.per_book, 10) || 2, 1), 5);
+  if (!query) return res.json({ query, results: [] });
+
+  try {
+    const results = await retrieveAiChunks(query, Math.min(limit * 5, 200));
+
+    res.json({
+      query,
+      results: groupSearchResults(results, { limit, excerptsPerBook })
+    });
+  } catch (error) {
+    console.error('Errore ricerca AI:', error.message);
+    res.status(503).json({ error: 'Ricerca semantica non disponibile', details: error.message });
+  }
+});
+
+app.post('/api/ai/ask', async (req, res) => {
+  const question = String(req.body?.question || '').trim();
+  const limit = Math.min(Math.max(Number.parseInt(req.body?.limit, 10) || 5, 1), 8);
+  if (!question) return res.status(400).json({ error: 'La domanda è obbligatoria' });
+  if (question.length > 1000) {
+    return res.status(400).json({ error: 'La domanda non può superare 1000 caratteri' });
+  }
+
+  try {
+    const chunks = await retrieveAiChunks(question, limit);
+    const context = buildGroundedContext(question, chunks);
+    if (!context.sources.length) {
+      return res.json({ answer: INSUFFICIENT_EVIDENCE, sources: [] });
+    }
+
+    const response = await axios.post(
+      AI_OLLAMA_CHAT_URL,
+      {
+        model: AI_CHAT_MODEL,
+        stream: false,
+        options: { temperature: 0 },
+        messages: context.messages
+      },
+      { timeout: 180000 }
+    );
+    const answer = String(response.data.message?.content || '').trim();
+    const citationCheck = validateCitations(answer, context.sources);
+    if (!citationCheck.valid) {
+      return res.json({ answer: INSUFFICIENT_EVIDENCE, sources: [] });
+    }
+
+    res.json({
+      answer,
+      sources: context.sources
+        .filter((source) => citationCheck.citations.includes(source.citation))
+        .map(({ text, ...source }) => ({ ...source, excerpt: text.slice(0, 700) }))
+    });
+  } catch (error) {
+    console.error('Errore domanda AI:', error.message);
+    res.status(503).json({ error: 'Risposta AI non disponibile', details: error.message });
+  }
+});
 
         // Inizializza database e worker di sincronizzazione
         // La connessione al server Calibre avviene solo durante gli aggiornamenti del database

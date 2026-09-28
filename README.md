@@ -47,6 +47,14 @@ Access the dashboard at `http://localhost:3000` in your web browser.
 - `GET /api/books/search?q=term` - Search books
 - `GET /api/stats` - Get reading statistics
 - `GET /opds` - OPDS feed
+- `GET /api/ai/search?q=...` - Semantic search grouped by book
+- `POST /api/ai/ask` - Ask a question using retrieved passages and citations
+
+The semantic analysis page is available at `/analysis.html`. AI endpoints require
+the local Ollama and Qdrant services. Question answering uses `mistral-nemo` by
+default; configure `AI_CHAT_MODEL` and `AI_OLLAMA_CHAT_URL` to use another Ollama
+chat model or endpoint. Answers are restricted to retrieved passages and are
+rejected when they do not cite a retrieved source.
 
 ## Development
 
