@@ -23,12 +23,6 @@
     .eyebrow { color: var(--accent-dark); font: 700 12px/1.2 Arial, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
     h1 { margin: 9px 0 0; font-size: clamp(36px, 6vw, 68px); line-height: .96; font-weight: 500; max-width: 650px; }
     .back { color: var(--ink); font: 700 14px Arial, sans-serif; text-decoration: none; border-bottom: 2px solid var(--accent); padding-bottom: 5px; }
-    .status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 28px; box-shadow: var(--shadow); }
-    .stat { background: var(--panel); padding: 20px; min-height: 104px; }
-    .stat strong { display: block; font-size: 31px; font-weight: 500; }
-    .stat span { color: var(--muted); font: 12px Arial, sans-serif; text-transform: uppercase; letter-spacing: .08em; }
-    .notice { background: #f8dfd2; border-left: 5px solid var(--accent); padding: 14px 17px; margin-bottom: 25px; font: 14px/1.45 Arial, sans-serif; }
-    .index-meta { color: var(--muted); margin: -14px 0 25px; font: 12px/1.5 Arial, sans-serif; }
     .search-dock { position: sticky; top: 8px; z-index: 10; margin: 0 0 22px; padding: 10px; background: rgba(255, 253, 248, .97); border: 1px solid var(--line); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
     .mode-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
     .mode-tab { min-height: 40px; padding: 0 14px; color: var(--muted); background: transparent; border-bottom: 3px solid transparent; }
@@ -37,18 +31,30 @@
     .search-form { display: flex; gap: 10px; margin: 0; }
     .search-form input, .search-form button { min-height: 48px; }
     .results-panel[hidden], .search-form[hidden] { display: none !important; }
+    #askForm { position: fixed; z-index: 20; left: 50%; bottom: 0; width: min(1120px, calc(100% - 36px)); padding: 12px; transform: translateX(-50%); border: 1px solid var(--line); border-bottom: 0; background: rgba(255, 253, 248, .98); box-shadow: 0 -8px 28px rgba(45, 35, 22, .12); }
+    #askResults { padding-bottom: 112px; }
     .ask-panel { border-top: 1px solid var(--line); margin-top: 46px; padding-top: 28px; }
     .occurrence-panel { border-top: 1px solid var(--line); margin-top: 38px; padding-top: 26px; }
     .occurrence-panel h2 { margin: 0 0 16px; font-size: 24px; font-weight: 500; }
     .result-count { color: var(--green); font: 700 12px Arial, sans-serif; white-space: nowrap; }
     .ask-panel h2 { margin: 0 0 16px; font-size: 24px; font-weight: 500; }
-    .answer-card { background: var(--panel); border: 1px solid var(--line); padding: 20px 22px; }
-    .answer-text { margin: 0; font-size: 17px; line-height: 1.6; white-space: pre-wrap; }
-    .source-list { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
+    .chat-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; font: 13px Arial, sans-serif; }
+    .chat-toolbar label { color: var(--muted); white-space: nowrap; }
+    .chat-toolbar select { min-width: 0; flex: 1; height: 42px; border: 1px solid var(--line); padding: 0 10px; background: var(--panel); color: var(--ink); font: 14px Arial, sans-serif; }
+    .chat-toolbar button { min-height: 42px; padding: 0 14px; white-space: nowrap; }
+    .chat-transcript { display: grid; gap: 20px; }
+    .chat-message { min-width: 0; padding: 4px 0 4px 18px; border-left: 3px solid var(--line); }
+    .chat-message.user { margin-left: clamp(0px, 8vw, 100px); border-left-color: var(--accent); }
+    .chat-message.assistant { margin-right: clamp(0px, 5vw, 64px); border-left-color: var(--green); }
+    .chat-role { margin-bottom: 7px; color: var(--muted); font: 700 11px Arial, sans-serif; text-transform: uppercase; }
+    .chat-content { margin: 0; font-size: 17px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .source-list { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 13px; }
     .source-list h3 { margin: 0 0 12px; font: 700 12px Arial, sans-serif; text-transform: uppercase; }
     .source-item + .source-item { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
     input { min-width: 0; flex: 1; border: 1px solid var(--line); background: var(--panel); padding: 17px 18px; color: var(--ink); font: 18px Georgia, serif; outline: none; }
     input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(214, 90, 58, .16); }
+    textarea { min-width: 0; min-height: 68px; max-height: 190px; flex: 1; resize: vertical; border: 1px solid var(--line); background: var(--panel); padding: 13px 16px; color: var(--ink); font: 17px/1.45 Georgia, serif; outline: none; }
+    textarea:focus, .chat-toolbar select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(214, 90, 58, .16); }
     button { border: 0; background: var(--accent); color: white; padding: 0 24px; font: 700 14px Arial, sans-serif; cursor: pointer; }
     button:hover { background: var(--accent-dark); }
     #results { display: grid; gap: 14px; }
@@ -64,12 +70,18 @@
     @media (max-width: 720px) {
       main { width: min(100% - 20px, 1120px); padding-top: 24px; }
       header { align-items: start; flex-direction: column; }
-      .status { grid-template-columns: repeat(2, 1fr); }
       .search-dock { top: 0; margin-inline: -10px; padding: 8px 10px 10px; }
       .mode-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .mode-tab { padding: 0 5px; font-size: 12px; }
       .search-form { flex-direction: column; gap: 8px; }
       .search-form button { min-height: 46px; }
+      .chat-toolbar { flex-wrap: wrap; }
+      .chat-toolbar label, .chat-toolbar select { flex-basis: 100%; }
+      .chat-message.user, .chat-message.assistant { margin-inline: 0; }
+      #askForm { width: calc(100% - 20px); padding: 8px; gap: 8px; flex-direction: row; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+      #askForm textarea { min-height: 54px; padding: 10px; font-size: 16px; }
+      #askForm button { min-height: 54px; padding: 0 15px; }
+      #askResults { padding-bottom: 94px; }
     }
   </style>
 </head>
@@ -79,16 +91,6 @@
       <div><div class="eyebrow">Calibre / laboratorio</div><h1>Analisi semantica della biblioteca</h1></div>
       <a class="back" href="/">Torna al catalogo</a>
     </header>
-
-    <section class="status" aria-label="Stato indicizzazione">
-      <div class="stat"><strong id="books">—</strong><span>libri catalogati</span></div>
-      <div class="stat"><strong id="chunks">—</strong><span>chunk estratti</span></div>
-      <div class="stat"><strong id="indexed">—</strong><span>chunk indicizzati</span></div>
-      <div class="stat"><strong id="coverage">—</strong><span>copertura</span></div>
-    </section>
-
-    <div id="notice" class="notice">Controllo stato indice...</div>
-    <div id="embeddingMeta" class="index-meta" aria-live="polite"></div>
 
     <section class="search-dock" aria-label="Ricerca nella biblioteca">
       <div class="mode-tabs" role="tablist" aria-label="Modalità di ricerca">
@@ -104,10 +106,6 @@
         <input id="occurrenceQuery" type="search" placeholder="Cerca un nome, per esempio Parker..." autocomplete="off">
         <button type="submit">Trova occorrenze</button>
       </form>
-      <form id="askForm" class="search-form" role="tabpanel" aria-labelledby="askTab" hidden>
-        <input id="question" type="search" placeholder="Fai una domanda sui testi della biblioteca..." autocomplete="off">
-        <button type="submit">Rispondi con fonti</button>
-      </form>
     </section>
 
     <section id="semanticResults" class="results-panel" role="tabpanel" aria-labelledby="semanticTab">
@@ -117,15 +115,29 @@
       <section id="occurrenceResults" aria-live="polite"><div class="empty">Trova i passaggi che contengono esattamente i termini inseriti.</div></section>
     </section>
     <section id="askResults" class="results-panel ask-panel" role="tabpanel" aria-labelledby="askTab" hidden>
-      <section id="answer" aria-live="polite"><div class="empty">Le risposte useranno solo i passaggi recuperati.</div></section>
+      <div class="chat-toolbar">
+        <label for="conversationSelect">Conversazioni salvate</label>
+        <select id="conversationSelect"><option value="">Nuova conversazione</option></select>
+        <button id="newConversation" type="button">Nuova chat</button>
+        <button id="deleteConversation" type="button" disabled>Elimina</button>
+      </div>
+      <section id="answer" class="chat-transcript" aria-live="polite"><div class="empty">Fai una domanda per iniziare. Le conversazioni e le fonti resteranno salvate.</div></section>
     </section>
+    <form id="askForm" class="search-form" role="tabpanel" aria-labelledby="askTab" hidden>
+      <textarea id="question" rows="2" maxlength="1000" placeholder="Continua la conversazione o fai una domanda sui testi..." aria-label="Messaggio"></textarea>
+      <button id="askSubmit" type="submit">Invia</button>
+    </form>
   </main>
   <script>
     const format = (value) => new Intl.NumberFormat('it-IT').format(value || 0);
-    const statusNotice = document.getElementById('notice');
     const results = document.getElementById('results');
     const answer = document.getElementById('answer');
     const occurrenceResults = document.getElementById('occurrenceResults');
+    const conversationSelect = document.getElementById('conversationSelect');
+    const deleteConversationButton = document.getElementById('deleteConversation');
+    let activeConversationId = null;
+    let chatMessages = [];
+    let isAsking = false;
     const modeTabs = [...document.querySelectorAll('.mode-tab')];
     const modeForms = [
       document.getElementById('searchForm'),
@@ -163,38 +175,6 @@
       });
     });
 
-    async function loadStatus() {
-      try {
-        const response = await fetch('/api/ai/index-status');
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.details || data.error);
-        document.getElementById('books').textContent = format(data.database.books);
-        document.getElementById('chunks').textContent = format(data.database.chunks);
-        document.getElementById('indexed').textContent = format(data.database.indexed_chunks);
-        document.getElementById('coverage').textContent = `${data.coverage}%`;
-        const embeddingIndexes = data.embedding_indexes || [];
-        document.getElementById('embeddingMeta').textContent = embeddingIndexes.length
-          ? `Embedding registrati: ${embeddingIndexes.map((index) => {
-              const lastIndexed = index.last_indexed_at
-                ? new Date(index.last_indexed_at).toLocaleString('it-IT')
-                : 'data non disponibile';
-              const modelVersion = index.model_digest
-                ? `digest ${index.model_digest.slice(0, 12)}`
-                : 'versione non attestata';
-              const indexerVersion = index.indexer_version
-                ? `pipeline ${index.indexer_version}`
-                : 'pipeline non attestata';
-              return `${index.model} · ${format(index.dimensions)} dimensioni · ${modelVersion} · ${indexerVersion} · ${format(index.indexed_chunks)} chunk · ultimo aggiornamento ${lastIndexed}`;
-            }).join(' | ')}`
-          : 'Metadati embedding non disponibili per questa collection.';
-        statusNotice.textContent = data.qdrant
-          ? `Indice ${data.qdrant.status}: ${data.coverage}% dei chunk disponibili. I risultati cresceranno mentre l'indicizzazione continua.`
-          : `Database disponibile, ma Qdrant non risponde: ${data.qdrant_error}`;
-      } catch (error) {
-        statusNotice.textContent = `Stato AI non disponibile: ${error.message}`;
-      }
-    }
-
     function renderResults(items) {
       if (!items.length) {
         results.innerHTML = '<div class="empty">Nessun risultato nell\'indice attuale.</div>';
@@ -228,6 +208,87 @@
         uncited_lines: 'Una o più righe della risposta non hanno una citazione.'
       })[reason] || '';
     }
+
+    function renderChat(messages = chatMessages) {
+      if (!messages.length) {
+        answer.innerHTML = '<div class="empty">Fai una domanda per iniziare. Le conversazioni e le fonti resteranno salvate.</div>';
+        return;
+      }
+      answer.innerHTML = messages.map((message) => {
+        const isUser = message.role === 'user';
+        const sources = Array.isArray(message.sources) ? message.sources : [];
+        return `
+          <article class="chat-message ${isUser ? 'user' : 'assistant'}">
+            <div class="chat-role">${isUser ? 'Tu' : 'Risposta con fonti'}</div>
+            <p class="chat-content">${escapeHtml(message.content || '')}</p>
+            ${sources.length ? `
+              <div class="source-list">
+                <h3>Fonti</h3>
+                ${sources.map((source) => `
+                  <div class="source-item">
+                    <p class="citation">[${escapeHtml(source.citation)}] ${escapeHtml(source.book_title)}${source.chapter_title ? ` · ${escapeHtml(source.chapter_title)}` : ''}</p>
+                    <p class="meta">${escapeHtml(source.authors || '')} · Chunk ${escapeHtml(source.chunk_id || '')}</p>
+                    <p class="excerpt">${escapeHtml(source.excerpt || '')}</p>
+                  </div>`).join('')}
+              </div>` : ''}
+          </article>`;
+      }).join('');
+      answer.scrollTop = answer.scrollHeight;
+    }
+
+    async function loadConversations(selectedId = activeConversationId) {
+      const response = await fetch('/api/ai/conversations');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.details || data.error);
+      conversationSelect.innerHTML = '<option value="">Nuova conversazione</option>' +
+        data.conversations.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`).join('');
+      const hasSelection = data.conversations.some((item) => item.id === selectedId);
+      activeConversationId = hasSelection ? selectedId : null;
+      conversationSelect.value = activeConversationId || '';
+      deleteConversationButton.disabled = !activeConversationId;
+    }
+
+    async function openConversation(id) {
+      if (!id) {
+        activeConversationId = null;
+        chatMessages = [];
+        deleteConversationButton.disabled = true;
+        renderChat();
+        return;
+      }
+      answer.innerHTML = '<div class="empty">Carico la conversazione...</div>';
+      try {
+        const response = await fetch(`/api/ai/conversations/${encodeURIComponent(id)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.details || data.error);
+        activeConversationId = data.conversation.id;
+        chatMessages = data.conversation.messages;
+        deleteConversationButton.disabled = false;
+        renderChat();
+      } catch (error) {
+        answer.innerHTML = `<div class="empty">Conversazione non disponibile: ${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    conversationSelect.addEventListener('change', () => openConversation(conversationSelect.value));
+    document.getElementById('newConversation').addEventListener('click', () => {
+      conversationSelect.value = '';
+      openConversation('');
+      document.getElementById('question').focus();
+    });
+    deleteConversationButton.addEventListener('click', async () => {
+      if (!activeConversationId || !window.confirm('Eliminare questa conversazione salvata?')) return;
+      try {
+        const response = await fetch(`/api/ai/conversations/${encodeURIComponent(activeConversationId)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Eliminazione non riuscita.');
+        activeConversationId = null;
+        chatMessages = [];
+        await loadConversations(null);
+        renderChat();
+      } catch (error) {
+        answer.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+      }
+    });
 
     function renderOccurrences(data) {
       if (!data.results.length) {
@@ -287,13 +348,19 @@
     document.getElementById('askForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const question = document.getElementById('question').value.trim();
-      if (!question) return;
-      answer.innerHTML = '<div class="empty">Recupero i passaggi e preparo la risposta...</div>';
+      if (!question || isAsking) return;
+      isAsking = true;
+      document.getElementById('askSubmit').disabled = true;
+      renderChat([
+        ...chatMessages,
+        { role: 'user', content: question },
+        { role: 'assistant', content: 'Recupero i passaggi e preparo la risposta...' }
+      ]);
       try {
         const response = await fetch('/api/ai/ask', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question })
+          body: JSON.stringify({ question, conversation_id: activeConversationId })
         });
         const data = await response.json();
         if (!response.ok) {
@@ -301,28 +368,34 @@
           throw new Error([data.details || data.error, reason].filter(Boolean).join(' '));
         }
         const sources = Array.isArray(data.sources) ? data.sources : [];
-        const reason = askReasonLabel(data.reason);
-        answer.innerHTML = `
-          <article class="answer-card">
-            <p class="answer-text">${escapeHtml(data.answer || 'Risposta non disponibile.')}</p>
-            ${reason ? `<p class="meta">${escapeHtml(reason)}</p>` : ''}
-            ${sources.length ? `
-              <div class="source-list">
-                <h3>Fonti</h3>
-                ${sources.map((source) => `
-                  <div class="source-item">
-                    <p class="citation">[${escapeHtml(source.citation)}] ${escapeHtml(source.book_title)}${source.chapter_title ? ` · ${escapeHtml(source.chapter_title)}` : ''}</p>
-                    <p class="meta">${escapeHtml(source.authors || '')} · Chunk ${escapeHtml(source.chunk_id || '')}</p>
-                    <p class="excerpt">${escapeHtml(source.excerpt || '')}</p>
-                  </div>`).join('')}
-              </div>` : ''}
-          </article>`;
+        activeConversationId = data.conversation_id;
+        chatMessages = [
+          ...chatMessages,
+          { role: 'user', content: question },
+          { role: 'assistant', content: data.answer || 'Risposta non disponibile.', sources }
+        ];
+        renderChat();
+        document.getElementById('question').value = '';
+        try {
+          await loadConversations(activeConversationId);
+        } catch (error) {
+          console.warn('Cronologia non aggiornata:', error.message);
+        }
       } catch (error) {
-        answer.innerHTML = `<div class="empty">Risposta non disponibile: ${escapeHtml(error.message)}</div>`;
+        renderChat([
+          ...chatMessages,
+          { role: 'user', content: question },
+          { role: 'assistant', content: `Risposta non disponibile: ${error.message}` }
+        ]);
+      } finally {
+        isAsking = false;
+        document.getElementById('askSubmit').disabled = false;
       }
     });
 
-    loadStatus();
+    loadConversations().catch((error) => {
+      answer.innerHTML = `<div class="empty">Cronologia non disponibile: ${escapeHtml(error.message)}</div>`;
+    });
   </script>
 </body>
 </html>

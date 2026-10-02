@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const path = require('path');
+require('dotenv').config();
 const SqliteDatabase = require('better-sqlite3');
 const { CronJob } = require('node-cron');
 
@@ -16,10 +17,12 @@ const {
 } = require('./services/lexical-search');
 const {
   INSUFFICIENT_EVIDENCE,
+  buildCitationRepairMessages,
   buildGroundedContext,
+  buildRetrievalQuery,
   validateCitations
 } = require('./services/ai-rag');
-require('dotenv').config();
+const aiChatStore = require('./services/ai-chat-store')();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -38,48 +41,6 @@ const AI_CHAT_MODEL = process.env.AI_CHAT_MODEL || 'mistral-nemo';
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
-
-function getAiSqliteStats() {
-  const database = new SqliteDatabase(AI_DB_PATH, { readonly: true, fileMustExist: true });
-  try {
-    const count = (table) => database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count;
-    const indexed = database.prepare(`
-      SELECT COUNT(DISTINCT chunk_id) AS count
-      FROM embedding_index
-      WHERE collection = ?
-    `).get(AI_QDRANT_COLLECTION).count;
-    const embeddingColumns = new Set(
-      database.prepare('PRAGMA table_info(embedding_index)').all().map((column) => column.name)
-    );
-    const modelDigestColumn = embeddingColumns.has('model_digest') ? 'model_digest' : 'NULL';
-    const indexerVersionColumn = embeddingColumns.has('indexer_version') ? 'indexer_version' : 'NULL';
-    const embeddingIndexes = database.prepare(`
-      SELECT
-        model,
-        dimensions,
-        ${modelDigestColumn} AS model_digest,
-        ${indexerVersionColumn} AS indexer_version,
-        COUNT(DISTINCT chunk_id) AS indexed_chunks,
-        MIN(indexed_at) AS first_indexed_at,
-        MAX(indexed_at) AS last_indexed_at
-      FROM embedding_index
-      WHERE collection = ?
-      GROUP BY model, dimensions, ${modelDigestColumn}, ${indexerVersionColumn}
-      ORDER BY MAX(indexed_at) DESC
-    `).all(AI_QDRANT_COLLECTION);
-
-    return {
-      books: count('books'),
-      extracted_books: count('extracted_books'),
-      chapters: count('extracted_chapters'),
-      chunks: count('extracted_chunks'),
-      indexed_chunks: indexed,
-      embedding_indexes: embeddingIndexes
-    };
-  } finally {
-    database.close();
-  }
-}
 
 function getAiChunkTexts(chunkIds) {
   if (!chunkIds.length) return new Map();
@@ -152,46 +113,6 @@ async function retrieveAiChunks(query, limit) {
   });
 }
 
-async function getAiQdrantStats() {
-  const response = await axios.get(
-    `${AI_QDRANT_URL}/collections/${AI_QDRANT_COLLECTION}`,
-    { timeout: 10000 }
-  );
-  const result = response.data.result;
-  return {
-    status: result.status,
-    points: result.points_count,
-    indexed_vectors: result.indexed_vectors_count,
-    segments: result.segments_count
-  };
-}
-
-app.get('/api/ai/index-status', async (req, res) => {
-  try {
-    const sqlite = getAiSqliteStats();
-    let qdrant = null;
-    let qdrantError = null;
-
-    try {
-      qdrant = await getAiQdrantStats();
-    } catch (error) {
-      qdrantError = error.message;
-    }
-
-    res.json({
-      database: sqlite,
-      qdrant,
-      qdrant_error: qdrantError,
-      coverage: sqlite.chunks ? Math.round((sqlite.indexed_chunks / sqlite.chunks) * 1000) / 10 : 0,
-      collection: AI_QDRANT_COLLECTION,
-      embedding_model: AI_EMBEDDING_MODEL,
-      embedding_indexes: sqlite.embedding_indexes
-    });
-  } catch (error) {
-    res.status(503).json({ error: 'Indice AI non disponibile', details: error.message });
-  }
-});
-
 app.get('/api/ai/search', async (req, res) => {
   const query = String(req.query.q || '').trim();
   const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 10, 1), 50);
@@ -249,8 +170,38 @@ app.get('/api/ai/occurrences', (req, res) => {
   }
 });
 
+app.get('/api/ai/conversations', (req, res) => {
+  try {
+    res.json({ conversations: aiChatStore.listConversations() });
+  } catch (error) {
+    res.status(500).json({ error: 'Cronologia conversazioni non disponibile', details: error.message });
+  }
+});
+
+app.get('/api/ai/conversations/:id', (req, res) => {
+  try {
+    const conversation = aiChatStore.getConversation(req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'Conversazione non trovata' });
+    res.json({ conversation });
+  } catch (error) {
+    res.status(500).json({ error: 'Conversazione non disponibile', details: error.message });
+  }
+});
+
+app.delete('/api/ai/conversations/:id', (req, res) => {
+  try {
+    if (!aiChatStore.deleteConversation(req.params.id)) {
+      return res.status(404).json({ error: 'Conversazione non trovata' });
+    }
+    res.status(204).end();
+  } catch (error) {
+    res.status(500).json({ error: 'Conversazione non eliminata', details: error.message });
+  }
+});
+
 app.post('/api/ai/ask', async (req, res) => {
   const question = String(req.body?.question || '').trim();
+  const requestedConversationId = String(req.body?.conversation_id || '').trim();
   const limit = Math.min(Math.max(Number.parseInt(req.body?.limit, 10) || 4, 1), 6);
   if (!question) return res.status(400).json({ error: 'La domanda è obbligatoria' });
   if (question.length > 1000) {
@@ -258,14 +209,24 @@ app.post('/api/ai/ask', async (req, res) => {
   }
 
   try {
-    const chunks = await retrieveAiChunks(question, limit);
-    const context = buildGroundedContext(question, chunks);
+    const conversation = requestedConversationId
+      ? aiChatStore.getConversation(requestedConversationId)
+      : null;
+    if (requestedConversationId && !conversation) {
+      return res.status(404).json({ error: 'Conversazione non trovata' });
+    }
+    const history = (conversation?.messages || []).map(({ role, content }) => ({ role, content }));
+    const chunks = await retrieveAiChunks(buildRetrievalQuery(question, history), limit);
+    const context = buildGroundedContext(question, chunks, history);
     if (!context.sources.length) {
+      const conversationId = conversation?.id || aiChatStore.createConversation(question);
+      aiChatStore.saveTurn(conversationId, question, INSUFFICIENT_EVIDENCE, []);
       return res.json({
         answer: INSUFFICIENT_EVIDENCE,
         status: 'insufficient_evidence',
         reason: 'no_retrieved_passages',
-        sources: []
+        sources: [],
+        conversation_id: conversationId
       });
     }
 
@@ -276,7 +237,7 @@ app.post('/api/ai/ask', async (req, res) => {
         {
           model: AI_CHAT_MODEL,
           stream: false,
-          options: { temperature: 0, num_ctx: 4096, num_predict: 384 },
+          options: { temperature: 0, num_ctx: 16384, num_predict: 512 },
           messages: context.messages
         },
         { timeout: 180000 }
@@ -284,20 +245,49 @@ app.post('/api/ai/ask', async (req, res) => {
     } catch (error) {
       throw wrapAiDependencyError('Generazione Ollama', error);
     }
-    const answer = String(response.data.message?.content || '').trim();
+    let answer = String(response.data.message?.content || '').trim();
+    let citationCheck = null;
+    if (answer !== INSUFFICIENT_EVIDENCE) {
+      citationCheck = validateCitations(answer, context.sources);
+      if (!citationCheck.valid) {
+        console.warn(`Risposta RAG da correggere: citazioni non valide (${citationCheck.reason})`);
+        try {
+          response = await axios.post(
+            AI_OLLAMA_CHAT_URL,
+            {
+              model: AI_CHAT_MODEL,
+              stream: false,
+              options: { temperature: 0, num_ctx: 16384, num_predict: 512 },
+              messages: buildCitationRepairMessages(context.messages, answer, context.sources)
+            },
+            { timeout: 180000 }
+          );
+        } catch (error) {
+          throw wrapAiDependencyError('Revisione citazioni Ollama', error);
+        }
+        answer = String(response.data.message?.content || '').trim();
+        if (answer !== INSUFFICIENT_EVIDENCE) {
+          citationCheck = validateCitations(answer, context.sources);
+        }
+      }
+    }
+
     if (answer === INSUFFICIENT_EVIDENCE) {
+      const sources = context.sources.map(({ text, prompt_excerpt, ...source }) => ({
+        ...source,
+        excerpt: prompt_excerpt.slice(0, 700)
+      }));
+      const conversationId = conversation?.id || aiChatStore.createConversation(question);
+      aiChatStore.saveTurn(conversationId, question, answer, sources);
       return res.json({
         answer: INSUFFICIENT_EVIDENCE,
         status: 'insufficient_evidence',
         reason: 'model_abstained',
-        sources: context.sources.map(({ text, prompt_excerpt, ...source }) => ({
-          ...source,
-          excerpt: prompt_excerpt.slice(0, 700)
-        }))
+        sources,
+        conversation_id: conversationId
       });
     }
 
-    const citationCheck = validateCitations(answer, context.sources);
     if (!citationCheck.valid) {
       console.warn(`Risposta RAG scartata: citazioni non valide (${citationCheck.reason})`);
       return res.status(502).json({
@@ -307,15 +297,20 @@ app.post('/api/ai/ask', async (req, res) => {
       });
     }
 
+    const sources = context.sources
+      .filter((source) => citationCheck.citations.includes(source.citation))
+      .map(({ text, prompt_excerpt, ...source }) => ({
+        ...source,
+        excerpt: prompt_excerpt.slice(0, 700)
+      }));
+    const conversationId = conversation?.id || aiChatStore.createConversation(question);
+    aiChatStore.saveTurn(conversationId, question, answer, sources);
+
     res.json({
       answer,
       status: 'answered',
-      sources: context.sources
-        .filter((source) => citationCheck.citations.includes(source.citation))
-        .map(({ text, prompt_excerpt, ...source }) => ({
-          ...source,
-          excerpt: prompt_excerpt.slice(0, 700)
-        }))
+      sources,
+      conversation_id: conversationId
     });
   } catch (error) {
     console.error('Errore domanda AI:', error.message);
