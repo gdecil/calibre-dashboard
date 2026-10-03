@@ -10,7 +10,19 @@ const { CronJob } = require('node-cron');
 delete require.cache[require.resolve('./database')];
 const { initializeDatabase, getReadBooks, getStats, getAdvancedStats, searchBooks, getCoverPath } = require('./database');
 const { startSyncWorker } = require('./sync-worker');
-const { groupSearchResults } = require('./services/semantic-search');
+const { groupSearchResults, selectSearchCandidates } = require('./services/semantic-search');
+const {
+  buildSummaryBatchMessages,
+  buildSummaryBatchRepairMessages,
+  combineSummaryNotes,
+  getUncitedSummarySources,
+  getBookSummaryChunks,
+  getBookSummaryChunksByCalibreId,
+  isBookSummaryRequest,
+  normalizeSummaryNoteCitations,
+  restoreSummaryCitations,
+  splitSummarySources
+} = require('./services/book-summary');
 const {
   FullTextIndexUnavailableError,
   searchExactOccurrences
@@ -20,6 +32,7 @@ const {
   buildCitationRepairMessages,
   buildGroundedContext,
   buildRetrievalQuery,
+  isDeepeningRequest,
   validateCitations
 } = require('./services/ai-rag');
 const aiChatStore = require('./services/ai-chat-store')();
@@ -37,6 +50,7 @@ const AI_OLLAMA_URL = process.env.AI_OLLAMA_URL || 'http://localhost:11434/api/e
 const AI_EMBEDDING_MODEL = process.env.AI_EMBEDDING_MODEL || 'qwen3-embedding';
 const AI_OLLAMA_CHAT_URL = process.env.AI_OLLAMA_CHAT_URL || 'http://localhost:11434/api/chat';
 const AI_CHAT_MODEL = process.env.AI_CHAT_MODEL || 'mistral-nemo';
+const AI_BOOK_SUMMARY_MODEL = process.env.AI_BOOK_SUMMARY_MODEL || 'qwen3:14b';
 
 app.use(cors());
 app.use(express.json());
@@ -66,7 +80,77 @@ function wrapAiDependencyError(stage, error) {
   return wrapped;
 }
 
-async function retrieveAiChunks(query, limit) {
+async function generateAiText(messages, stage, model = AI_CHAT_MODEL, { bookSummary = false } = {}) {
+  try {
+    const response = await axios.post(
+      AI_OLLAMA_CHAT_URL,
+      {
+        model,
+        stream: false,
+        think: bookSummary ? false : undefined,
+        options: { temperature: 0, num_ctx: 16384, num_predict: bookSummary ? 1024 : 512 },
+        messages
+      },
+      { timeout: 180000 }
+    );
+    return String(response.data.message?.content || '').trim();
+  } catch (error) {
+    throw wrapAiDependencyError(stage, error);
+  }
+}
+
+async function generateCitedText(messages, sources, stage, model = AI_CHAT_MODEL, options = {}) {
+  let answer = await generateAiText(messages, stage, model, options);
+  let citationCheck = validateCitations(answer, sources);
+  if (!citationCheck.valid) {
+    answer = await generateAiText(
+      buildCitationRepairMessages(messages, answer, sources),
+      `${stage} citazioni`,
+      model,
+      options
+    );
+    citationCheck = validateCitations(answer, sources);
+  }
+  return { answer, citationCheck };
+}
+
+async function generateBookSummary(bookTitle, sources) {
+  const batches = splitSummarySources(sources);
+  const notes = [];
+
+  for (let index = 0; index < batches.length; index += 1) {
+    const batch = batches[index];
+    const localBatch = batch.map((source, sourceIndex) => ({
+      ...source,
+      citation: `C${sourceIndex + 1}`
+    }));
+    const messages = buildSummaryBatchMessages(bookTitle, localBatch, index + 1, batches.length, sources.length);
+    let note = normalizeSummaryNoteCitations(
+      await generateAiText(messages, 'Sintesi dei capitoli Ollama', AI_BOOK_SUMMARY_MODEL, { bookSummary: true })
+    );
+    let citationCheck = validateCitations(note, localBatch);
+    let uncitedSources = getUncitedSummarySources(note, localBatch);
+    if (!citationCheck.valid || uncitedSources.length) {
+      note = normalizeSummaryNoteCitations(await generateAiText(
+        buildSummaryBatchRepairMessages(messages, note, localBatch),
+        'Citazioni della sintesi Ollama',
+        AI_BOOK_SUMMARY_MODEL,
+        { bookSummary: true }
+      ));
+      citationCheck = validateCitations(note, localBatch);
+      uncitedSources = getUncitedSummarySources(note, localBatch);
+    }
+    if (!citationCheck.valid || uncitedSources.length) {
+      throw new Error(`Sintesi del gruppo ${index + 1} priva di citazioni valide per tutte le fonti`);
+    }
+    notes.push(restoreSummaryCitations(note, batch));
+  }
+
+  const answer = combineSummaryNotes(notes);
+  return { answer, citationCheck: validateCitations(answer, sources) };
+}
+
+async function retrieveAiChunks(query, limit, { question = query, excludeChunkIds = [] } = {}) {
   let embeddingResponse;
   try {
     embeddingResponse = await axios.post(
@@ -82,9 +166,10 @@ async function retrieveAiChunks(query, limit) {
 
   let searchResponse;
   try {
+    const searchLimit = Math.min(limit + excludeChunkIds.length * 5, 200);
     searchResponse = await axios.post(
       `${AI_QDRANT_URL}/collections/${AI_QDRANT_COLLECTION}/points/query`,
-      { query: vector, limit, with_payload: true, params: { indexed_only: true } },
+      { query: vector, limit: searchLimit, with_payload: true, params: { indexed_only: true } },
       {
         timeout: AI_QDRANT_SEARCH_TIMEOUT_MS + 10000,
         params: { timeout: Math.ceil(AI_QDRANT_SEARCH_TIMEOUT_MS / 1000) }
@@ -94,7 +179,11 @@ async function retrieveAiChunks(query, limit) {
     throw wrapAiDependencyError('Ricerca Qdrant', error);
   }
 
-  const points = searchResponse.data.result?.points || [];
+  const points = selectSearchCandidates(searchResponse.data.result?.points || [], {
+    query: question,
+    limit,
+    excludeChunkIds
+  });
   if (searchResponse.data.time > 15) {
     console.warn(`Ricerca Qdrant lenta: ${searchResponse.data.time}s (${points.length} risultati)`);
   }
@@ -199,6 +288,73 @@ app.delete('/api/ai/conversations/:id', (req, res) => {
   }
 });
 
+app.get('/api/books/:id/summary', (req, res) => {
+  const calibreBookId = String(req.params.id || '');
+  if (!/^\d+$/.test(calibreBookId)) {
+    return res.status(400).json({ error: 'ID libro non valido' });
+  }
+
+  try {
+    res.json({ summary: aiChatStore.getBookSummary(calibreBookId) });
+  } catch (error) {
+    res.status(500).json({ error: 'Riassunto libro non disponibile', details: error.message });
+  }
+});
+
+app.post('/api/books/:id/summary', async (req, res) => {
+  const calibreBookId = String(req.params.id || '');
+  if (!/^\d+$/.test(calibreBookId)) {
+    return res.status(400).json({ error: 'ID libro non valido' });
+  }
+
+  let database;
+  try {
+    database = new SqliteDatabase(AI_DB_PATH, { readonly: true, fileMustExist: true });
+    const bookSummary = getBookSummaryChunksByCalibreId(database, calibreBookId);
+    database.close();
+    database = null;
+
+    if (!bookSummary) {
+      return res.status(404).json({ error: 'Testo estratto del libro non disponibile per generare il riassunto.' });
+    }
+
+    const question = `Riassumi il libro ${bookSummary.book.title}`;
+    const context = buildGroundedContext(question, bookSummary.chunks, [], { summaryMode: true });
+    if (!context.sources.length) {
+      return res.status(404).json({ error: 'Il libro non contiene capitoli narrativi riassumibili.' });
+    }
+
+    const result = await generateBookSummary(bookSummary.book.title, context.sources);
+    if (!result.citationCheck.valid) {
+      return res.status(502).json({ error: 'Riassunto rifiutato perché le citazioni non sono valide.' });
+    }
+
+    const sources = context.sources
+      .filter((source) => result.citationCheck.citations.includes(source.citation))
+      .map(({ text, prompt_excerpt, ...source }) => ({
+        ...source,
+        excerpt: prompt_excerpt.slice(0, 700)
+      }));
+    const summary = aiChatStore.saveBookSummary(
+      calibreBookId,
+      bookSummary.book.title,
+      result.answer,
+      sources,
+      AI_BOOK_SUMMARY_MODEL
+    );
+    res.json({ summary });
+  } catch (error) {
+    if (database && database.open) database.close();
+    console.error('Errore generazione riassunto libro:', error.message);
+    res.status(503).json({
+      error: 'Generazione riassunto non disponibile',
+      details: error.message,
+      stage: error.stage || 'recupero testo libro',
+      upstream_status: error.upstreamStatus || null
+    });
+  }
+});
+
 app.post('/api/ai/ask', async (req, res) => {
   const question = String(req.body?.question || '').trim();
   const requestedConversationId = String(req.body?.conversation_id || '').trim();
@@ -215,9 +371,33 @@ app.post('/api/ai/ask', async (req, res) => {
     if (requestedConversationId && !conversation) {
       return res.status(404).json({ error: 'Conversazione non trovata' });
     }
-    const history = (conversation?.messages || []).map(({ role, content }) => ({ role, content }));
-    const chunks = await retrieveAiChunks(buildRetrievalQuery(question, history), limit);
-    const context = buildGroundedContext(question, chunks, history);
+    const history = (conversation?.messages || []).map(({ role, content, sources }) => ({ role, content, sources }));
+    const summaryRequest = isBookSummaryRequest(question);
+    let bookSummary = null;
+    if (summaryRequest) {
+      const summaryQuery = [
+        ...history.filter((message) => message.role === 'user').slice(-2).map((message) => message.content),
+        question
+      ].join('\n');
+      const database = new SqliteDatabase(AI_DB_PATH, { readonly: true, fileMustExist: true });
+      try {
+        bookSummary = getBookSummaryChunks(database, summaryQuery);
+      } finally {
+        database.close();
+      }
+    }
+    const previousChunkIds = isDeepeningRequest(question)
+      ? history
+        .filter((message) => message.role === 'assistant')
+        .flatMap((message) => message.sources || [])
+        .map((source) => source.chunk_id)
+        .filter((chunkId) => chunkId !== undefined && chunkId !== null)
+      : [];
+    const chunks = bookSummary?.chunks || await retrieveAiChunks(buildRetrievalQuery(question, history), limit, {
+      question,
+      excludeChunkIds: previousChunkIds
+    });
+    const context = buildGroundedContext(question, chunks, history, { summaryMode: Boolean(bookSummary) });
     if (!context.sources.length) {
       const conversationId = conversation?.id || aiChatStore.createConversation(question);
       aiChatStore.saveTurn(conversationId, question, INSUFFICIENT_EVIDENCE, []);
@@ -230,42 +410,21 @@ app.post('/api/ai/ask', async (req, res) => {
       });
     }
 
-    let response;
-    try {
-      response = await axios.post(
-        AI_OLLAMA_CHAT_URL,
-        {
-          model: AI_CHAT_MODEL,
-          stream: false,
-          options: { temperature: 0, num_ctx: 16384, num_predict: 512 },
-          messages: context.messages
-        },
-        { timeout: 180000 }
-      );
-    } catch (error) {
-      throw wrapAiDependencyError('Generazione Ollama', error);
-    }
-    let answer = String(response.data.message?.content || '').trim();
+    let answer;
     let citationCheck = null;
-    if (answer !== INSUFFICIENT_EVIDENCE) {
+    if (bookSummary) {
+      ({ answer, citationCheck } = await generateBookSummary(bookSummary.book.title, context.sources));
+    } else {
+      answer = await generateAiText(context.messages, 'Generazione Ollama');
+    }
+    if (!bookSummary && answer !== INSUFFICIENT_EVIDENCE) {
       citationCheck = validateCitations(answer, context.sources);
       if (!citationCheck.valid) {
         console.warn(`Risposta RAG da correggere: citazioni non valide (${citationCheck.reason})`);
-        try {
-          response = await axios.post(
-            AI_OLLAMA_CHAT_URL,
-            {
-              model: AI_CHAT_MODEL,
-              stream: false,
-              options: { temperature: 0, num_ctx: 16384, num_predict: 512 },
-              messages: buildCitationRepairMessages(context.messages, answer, context.sources)
-            },
-            { timeout: 180000 }
-          );
-        } catch (error) {
-          throw wrapAiDependencyError('Revisione citazioni Ollama', error);
-        }
-        answer = String(response.data.message?.content || '').trim();
+        answer = await generateAiText(
+          buildCitationRepairMessages(context.messages, answer, context.sources),
+          'Revisione citazioni Ollama'
+        );
         if (answer !== INSUFFICIENT_EVIDENCE) {
           citationCheck = validateCitations(answer, context.sources);
         }

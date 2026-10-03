@@ -4,8 +4,11 @@ const {
     buildGroundedContext,
     buildRetrievalQuery,
     excerptForQuestion,
+    excerptAcrossChapter,
+    isDeepeningRequest,
     validateCitations
 } = require('../services/ai-rag');
+const { selectSearchCandidates } = require('../services/semantic-search');
 
 describe('grounded RAG helpers', () => {
     test('builds numbered sources and restricts the prompt to retrieved passages', () => {
@@ -29,6 +32,7 @@ describe('grounded RAG helpers', () => {
         expect(context.messages[0].content).toContain('Asteniti solo se nessun passaggio contiene informazioni pertinenti');
         expect(context.messages[0].content).not.toContain('Se i passaggi non contengono elementi sufficienti');
         expect(context.messages[0].content).toContain('Brightwell faceva parte dei Credenti [C1].');
+        expect(context.messages[0].content).toContain('Ogni fatto deve essere esposto una sola volta');
         expect(context.messages[1].content).toContain('[C1] Elianto | Stefano Benni | Capitolo 15 | chunk 322506');
         expect(context.messages[1].content).toContain('Domanda: Che cosa ricorda?');
     });
@@ -54,9 +58,38 @@ describe('grounded RAG helpers', () => {
         ]);
 
         expect(query).toContain('Perché il protagonista rifiuta la proposta?');
-        expect(query).toContain('La rifiuta per proteggere la sorella.');
+      expect(query).not.toContain('La rifiuta per proteggere la sorella.');
         expect(query).toContain('E perché?');
-        expect(query.length).toBeLessThanOrEqual(4000);
+      expect(query.length).toBeLessThanOrEqual(3000);
+    });
+
+    test('keeps substantive follow-up retrieval focused on its current question', () => {
+        const currentQuestion = 'Approfondisci Brightwell il Credente nel libro La rabbia degli angeli';
+        const query = buildRetrievalQuery(currentQuestion, [
+            { role: 'user', content: 'Quale è il ruolo di Brightwell nei libri di Connolly?' },
+            { role: 'assistant', content: 'Brightwell serviva due angeli gemelli.' }
+        ]);
+
+        expect(query).toBe(currentQuestion);
+    });
+
+    test('detects requests for more detail', () => {
+        expect(isDeepeningRequest('Approfondisci Brightwell in questo libro')).toBe(true);
+        expect(isDeepeningRequest('Qual è il suo ruolo?')).toBe(false);
+    });
+
+    test('uses only requested-book passages and excludes sources already cited', () => {
+        const results = selectSearchCandidates([
+            { id: 1, payload: { chunk_id: 1, book_title: 'La rabbia degli angeli' } },
+            { id: 2, payload: { chunk_id: 2, book_title: 'L’Angelo delle Ossa' } },
+            { id: 3, payload: { chunk_id: 3, book_title: 'La rabbia degli angeli' } }
+        ], {
+            query: 'Approfondisci nel libro La rabbia degli angeli',
+            limit: 4,
+            excludeChunkIds: [1]
+        });
+
+        expect(results.map((result) => result.id)).toEqual([3]);
     });
 
     test('accepts only answers citing a retrieved source', () => {
@@ -110,5 +143,25 @@ describe('grounded RAG helpers', () => {
 
         expect(excerpt.length).toBeLessThanOrEqual(1600);
         expect(excerpt).toContain('Brightwell è un sepolcro di anime');
+    });
+
+    test('samples the beginning, middle, and ending of long summary chapters', () => {
+        const text = `${'inizio '.repeat(200)}${'centro '.repeat(200)}${'fine '.repeat(200)}`;
+        const excerpt = excerptAcrossChapter(text, 80);
+
+        expect(excerpt).toContain('[Inizio]');
+        expect(excerpt).toContain('[Centro]');
+        expect(excerpt).toContain('[Fine]');
+        expect(excerpt).toContain('fine');
+    });
+
+    test('provides a larger three-part excerpt budget for long summary chapters', () => {
+        const text = 'x'.repeat(10000);
+        const excerpt = excerptAcrossChapter(text);
+
+        expect(excerpt.length).toBeGreaterThan(5500);
+        expect(excerpt).toContain('[Inizio]');
+        expect(excerpt).toContain('[Centro]');
+        expect(excerpt).toContain('[Fine]');
     });
 });

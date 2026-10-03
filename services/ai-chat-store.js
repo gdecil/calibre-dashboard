@@ -24,6 +24,14 @@ function createAiChatStore(databasePath) {
         );
         CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation
             ON ai_conversation_messages(conversation_id, id);
+        CREATE TABLE IF NOT EXISTS ai_book_summaries (
+            calibre_book_id TEXT PRIMARY KEY,
+            book_title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            sources_json TEXT NOT NULL DEFAULT '[]',
+            model TEXT NOT NULL,
+            generated_at TEXT NOT NULL
+        );
     `);
     database.pragma('foreign_keys = ON');
 
@@ -94,6 +102,41 @@ function createAiChatStore(databasePath) {
 
         deleteConversation(id) {
             return database.prepare('DELETE FROM ai_conversations WHERE id = ?').run(id).changes > 0;
+        },
+
+        getBookSummary(calibreBookId) {
+            const summary = database.prepare(`
+                SELECT calibre_book_id, book_title, summary, sources_json, model, generated_at
+                FROM ai_book_summaries
+                WHERE calibre_book_id = ?
+            `).get(String(calibreBookId));
+            if (!summary) return null;
+
+            const { sources_json, ...result } = summary;
+            return { ...result, sources: JSON.parse(sources_json) };
+        },
+
+        saveBookSummary(calibreBookId, bookTitle, summary, sources = [], model) {
+            const generatedAt = new Date().toISOString();
+            database.prepare(`
+                INSERT INTO ai_book_summaries
+                    (calibre_book_id, book_title, summary, sources_json, model, generated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(calibre_book_id) DO UPDATE SET
+                    book_title = excluded.book_title,
+                    summary = excluded.summary,
+                    sources_json = excluded.sources_json,
+                    model = excluded.model,
+                    generated_at = excluded.generated_at
+            `).run(
+                String(calibreBookId),
+                String(bookTitle),
+                String(summary),
+                JSON.stringify(sources),
+                String(model || 'unknown'),
+                generatedAt
+            );
+            return this.getBookSummary(calibreBookId);
         },
 
         close() {

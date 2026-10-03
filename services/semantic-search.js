@@ -6,6 +6,29 @@ function getDisplayChapterTitle(title, chapterNumber) {
     return Number.isFinite(number) && number > 0 ? `Capitolo ${number}` : 'Capitolo';
 }
 
+function normalizeSearchText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .toLocaleLowerCase('it')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .trim();
+}
+
+function selectSearchCandidates(results, { query = '', limit = 10, excludeChunkIds = [] } = {}) {
+    const normalizedQuery = ` ${normalizeSearchText(query)} `;
+    const requestedBookResults = results.filter((result) => {
+        const title = normalizeSearchText(result.payload?.book_title || result.book_title);
+        return title && normalizedQuery.includes(` ${title} `);
+    });
+    const excludedIds = new Set(excludeChunkIds.map(String));
+    const candidates = requestedBookResults.length ? requestedBookResults : results;
+
+    return candidates
+        .filter((result) => !excludedIds.has(String(result.payload?.chunk_id ?? result.chunk_id ?? result.id)))
+        .slice(0, limit);
+}
+
 function groupSearchResults(results, { limit = 10, excerptsPerBook = 2 } = {}) {
     const groups = new Map();
 
@@ -46,4 +69,4 @@ function groupSearchResults(results, { limit = 10, excerptsPerBook = 2 } = {}) {
         .slice(0, limit);
 }
 
-module.exports = { groupSearchResults };
+module.exports = { groupSearchResults, selectSearchCandidates };

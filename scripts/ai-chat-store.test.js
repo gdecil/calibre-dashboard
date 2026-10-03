@@ -47,4 +47,23 @@ describe('AI chat store', () => {
         expect(store.getConversation(id)).toBeNull();
         expect(store.listConversations()).toHaveLength(0);
     });
+
+    test('persists book summaries by Calibre ID and replaces older versions', () => {
+        const sources = [{ citation: 'C1', chapter_title: 'Capitolo 3', excerpt: 'Un passaggio' }];
+        store.saveBookSummary('24614', 'La rabbia degli angeli', 'Prima sintesi [C1].', sources, 'qwen3:14b');
+        store.close();
+
+        store = createAiChatStore(databasePath);
+        expect(store.getBookSummary('24614')).toMatchObject({
+            calibre_book_id: '24614',
+            book_title: 'La rabbia degli angeli',
+            summary: 'Prima sintesi [C1].',
+            sources,
+            model: 'qwen3:14b'
+        });
+
+        const updated = store.saveBookSummary('24614', 'La rabbia degli angeli', 'Sintesi aggiornata [C1].', sources, 'qwen3:14b');
+        expect(updated.summary).toBe('Sintesi aggiornata [C1].');
+        expect(updated.sources).toEqual(sources);
+    });
 });

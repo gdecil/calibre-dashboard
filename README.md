@@ -59,6 +59,9 @@ restricted to retrieved passages and rejected when they do not cite a retrieved
 source. Retrieved passages are a limited sample, so list answers are not
 guaranteed to be exhaustive.
 
+Book summaries use `qwen3:14b` by default, separately from `AI_CHAT_MODEL`.
+Set `AI_BOOK_SUMMARY_MODEL` to select another installed Ollama model.
+
 Exact occurrence search uses a local SQLite FTS5 index. Build it once, with the
 Calibre AI indexer stopped, by running from `calibre-ai`:
 

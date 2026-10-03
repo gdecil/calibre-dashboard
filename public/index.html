@@ -349,6 +349,18 @@
                             <p class="text-xs font-semibold text-slate-600 uppercase mb-2">📖 Descrizione</p>
                             <p id="modalDescription" class="text-sm text-slate-700 leading-relaxed max-h-64 overflow-y-auto bg-slate-50 p-3 rounded"></p>
                         </div>
+
+                        <section class="border-t border-slate-200 pt-5" aria-labelledby="bookSummaryHeading">
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                    <h3 id="bookSummaryHeading" class="text-sm font-semibold text-slate-700 uppercase">Riassunto</h3>
+                                    <p id="bookSummaryStatus" class="mt-1 text-xs text-slate-500" aria-live="polite">Verifica riassunto salvato...</p>
+                                </div>
+                                <button id="generateBookSummaryButton" type="button" disabled class="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-wait">Genera riassunto</button>
+                            </div>
+                            <div id="bookSummaryText" class="hidden mt-4 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap"></div>
+                            <div id="bookSummarySources" class="mt-3"></div>
+                        </section>
                     </div>
                 </div>
             </div>
@@ -364,6 +376,8 @@
             let filteredBooks = [];
             let advancedStats = null;
             let currentSort = { column: 'date', direction: 'desc' };
+            let activeBookForSummary = null;
+            let bookSummaryLoadToken = 0;
             
             // ============ COSTANTI ============
             
@@ -407,6 +421,8 @@
             // ============ MODAL LIBRO ============
 
             function openBookModal(book) {
+                activeBookForSummary = book;
+                const summaryToken = ++bookSummaryLoadToken;
                 document.getElementById('modalTitle').textContent = book.title || 'Sconosciuto';
                 document.getElementById('modalAuthors').textContent = getAuthorDisplayName(book.authors) || 'Autore sconosciuto';
                 document.getElementById('modalPublisher').textContent = book.publisher || '—';
@@ -469,17 +485,116 @@
 
                 // Descrizione
                 document.getElementById('modalDescription').textContent = book.description || 'Nessuna descrizione disponibile';
+                document.getElementById('bookSummaryStatus').textContent = 'Verifica riassunto salvato...';
+                document.getElementById('bookSummaryText').textContent = '';
+                document.getElementById('bookSummaryText').classList.add('hidden');
+                document.getElementById('bookSummarySources').replaceChildren();
+                const summaryButton = document.getElementById('generateBookSummaryButton');
+                summaryButton.textContent = 'Genera riassunto';
+                summaryButton.disabled = true;
 
                 bookModal.classList.remove('hidden');
                 document.body.style.overflow = 'hidden';
+                loadBookSummary(book, summaryToken);
+            }
+
+            function renderBookSummary(summary) {
+                const summaryText = document.getElementById('bookSummaryText');
+                const summaryStatus = document.getElementById('bookSummaryStatus');
+                const summaryButton = document.getElementById('generateBookSummaryButton');
+                const summarySources = document.getElementById('bookSummarySources');
+                summarySources.replaceChildren();
+
+                if (!summary) {
+                    summaryText.textContent = '';
+                    summaryText.classList.add('hidden');
+                    summaryStatus.textContent = 'Nessun riassunto salvato.';
+                    summaryButton.textContent = 'Genera riassunto';
+                    return;
+                }
+
+                summaryText.textContent = summary.summary;
+                summaryText.classList.remove('hidden');
+                const generatedAt = new Date(summary.generated_at);
+                const generatedDate = Number.isNaN(generatedAt.getTime())
+                    ? ''
+                    : ` · ${generatedAt.toLocaleString('it-IT')}`;
+                summaryStatus.textContent = `Salvato con ${summary.model}${generatedDate}`;
+                summaryButton.textContent = 'Rigenera riassunto';
+
+                if (summary.sources?.length) {
+                    const details = document.createElement('details');
+                    details.className = 'mt-3 text-xs text-slate-600';
+                    const heading = document.createElement('summary');
+                    heading.className = 'cursor-pointer font-semibold';
+                    heading.textContent = `Fonti citate (${summary.sources.length})`;
+                    const list = document.createElement('ul');
+                    list.className = 'mt-2 space-y-2 pl-4';
+                    summary.sources.forEach((source) => {
+                        const item = document.createElement('li');
+                        item.textContent = `[${source.citation}] ${source.chapter_title || 'Passaggio'}${source.excerpt ? ` · ${source.excerpt}` : ''}`;
+                        list.appendChild(item);
+                    });
+                    details.append(heading, list);
+                    summarySources.appendChild(details);
+                }
+            }
+
+            async function loadBookSummary(book, token) {
+                const summaryButton = document.getElementById('generateBookSummaryButton');
+                summaryButton.disabled = true;
+                try {
+                    const response = await fetch(`/api/books/${encodeURIComponent(book.id)}/summary`);
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.details || data.error || 'Riassunto non disponibile');
+                    if (token !== bookSummaryLoadToken || activeBookForSummary?.id !== book.id) return;
+                    renderBookSummary(data.summary);
+                } catch (error) {
+                    if (token !== bookSummaryLoadToken || activeBookForSummary?.id !== book.id) return;
+                    document.getElementById('bookSummaryStatus').textContent = `Impossibile caricare il riassunto: ${error.message}`;
+                } finally {
+                    if (token === bookSummaryLoadToken && activeBookForSummary?.id === book.id) {
+                        summaryButton.disabled = false;
+                    }
+                }
+            }
+
+            async function generateBookSummary(book, token) {
+                if (!book || token !== bookSummaryLoadToken) return;
+                const summaryButton = document.getElementById('generateBookSummaryButton');
+                const summaryStatus = document.getElementById('bookSummaryStatus');
+                summaryButton.disabled = true;
+                summaryButton.textContent = 'Generazione in corso...';
+                summaryStatus.textContent = 'Analisi dei capitoli. Il riassunto verrà salvato al termine.';
+
+                try {
+                    const response = await fetch(`/api/books/${encodeURIComponent(book.id)}/summary`, { method: 'POST' });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.details || data.error || 'Generazione non riuscita');
+                    if (token !== bookSummaryLoadToken || activeBookForSummary?.id !== book.id) return;
+                    renderBookSummary(data.summary);
+                } catch (error) {
+                    if (token !== bookSummaryLoadToken || activeBookForSummary?.id !== book.id) return;
+                    summaryStatus.textContent = `Generazione non riuscita: ${error.message}`;
+                    summaryButton.textContent = 'Riprova';
+                } finally {
+                    if (token === bookSummaryLoadToken && activeBookForSummary?.id === book.id) {
+                        summaryButton.disabled = false;
+                    }
+                }
             }
 
             function closeBookModal() {
+                activeBookForSummary = null;
+                bookSummaryLoadToken++;
                 bookModal.classList.add('hidden');
                 document.body.style.overflow = 'auto';
             }
 
             closeModalBtn.addEventListener('click', closeBookModal);
+            document.getElementById('generateBookSummaryButton').addEventListener('click', () => {
+                generateBookSummary(activeBookForSummary, bookSummaryLoadToken);
+            });
             modalOverlay.addEventListener('click', (e) => {
                 if (e.target === modalOverlay) closeBookModal();
             });
