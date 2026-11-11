@@ -1,2 +1,2 @@
-.env
-/data/ai-chat.sqlite*
+# Node modules directory
+node_modules/
