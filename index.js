@@ -5,10 +5,19 @@ const path = require('path');
 require('dotenv').config();
 const SqliteDatabase = require('better-sqlite3');
 const { CronJob } = require('node-cron');
+const { getCalibreResponse } = require('./services/calibre-opds');
 
 // Forza ricaricamento del modulo database per evitare cache
 delete require.cache[require.resolve('./database')];
-const { initializeDatabase, getReadBooks, getStats, getAdvancedStats, searchBooks, getCoverPath } = require('./database');
+const {
+  initializeDatabase,
+  refreshCalibreBooks,
+  getReadBooks,
+  getStats,
+  getAdvancedStats,
+  searchBooks,
+  getCoverPath
+} = require('./database');
 const { startSyncWorker } = require('./sync-worker');
 const { groupSearchResults, selectSearchCandidates } = require('./services/semantic-search');
 const {
@@ -482,27 +491,13 @@ app.post('/api/ai/ask', async (req, res) => {
   }
 });
 
-        // Inizializza database e worker di sincronizzazione
-        // La connessione al server Calibre avviene solo durante gli aggiornamenti del database
-        initializeDatabase().then(() => {
-            console.log('✅ Database inizializzato');
-          if (process.env.CALIBRE_DB_PATH) {
-            console.log('📚 Lettura diretta dal database SQLite di Calibre attiva');
-          } else {
-            startSyncWorker();
-          }
-        }).catch(error => {
-            console.error('❌ Errore inizializzazione:', error.message);
-            process.exit(1);
-        });
-
 app.get('/api/books', async (req, res) => {
   try {
     const books = await getReadBooks();
     res.json(books);
   } catch (error) {
     console.error('Errore API /api/books:', error.message);
-    res.status(500).json({ 
+    res.status(503).json({
       error: 'Errore nel recupero libri dal database', 
       details: error.message
     });
@@ -515,15 +510,7 @@ app.get('/api/books/read', async (req, res) => {
     res.json(books);
   } catch (error) {
     console.error('Server Calibre non raggiungibile:', error.message);
-    // Modalità Demo: restituisci dati di esempio quando server non disponibile
-    res.json([
-      { id: 1, title: "1984", authors: ["George Orwell"], user_metadata: { '#rating': { value: 5 }, '#read': { value: true } } },
-      { id: 2, title: "Il Nome della Rosa", authors: ["Umberto Eco"], user_metadata: { '#rating': { value: 5 }, '#read': { value: true } } },
-      { id: 3, title: "Fondazione", authors: ["Isaac Asimov"], user_metadata: { '#rating': { value: 4 }, '#read': { value: true } } },
-      { id: 4, title: "Dune", authors: ["Frank Herbert"], user_metadata: { '#rating': { value: 5 }, '#read': { value: true } } },
-      { id: 5, title: "Neuromante", authors: ["William Gibson"], user_metadata: { '#rating': { value: 4 }, '#read': { value: true } } },
-      { id: 6, title: "Il Signore degli Anelli", authors: ["J.R.R. Tolkien"], user_metadata: { '#rating': { value: 5 }, '#read': { value: true } } }
-    ]);
+    res.status(503).json({ error: 'Server Calibre non raggiungibile', details: error.message });
   }
 });
 
@@ -533,26 +520,7 @@ app.get('/api/stats', async (req, res) => {
     res.json(stats);
   } catch (error) {
     console.error('Server Calibre non raggiungibile:', error.message);
-    // Modalità Demo: statistiche di esempio
-    res.json({
-      total_books: 1247,
-      read_books: 312,
-      percentage_read: 25,
-      top_authors: [
-        ["Isaac Asimov", 23], ["Arthur C. Clarke", 18], ["Philip K. Dick", 15],
-        ["Umberto Eco", 12], ["George Orwell", 9], ["Frank Herbert", 8],
-        ["William Gibson", 7], ["J.R.R. Tolkien", 6], ["Neil Gaiman", 5], ["Dan Simmons", 4],
-        ["H.P. Lovecraft", 4], ["Ray Bradbury", 3], ["Stanisław Lem", 3], ["Italo Calvino", 3],
-        ["Jules Verne", 2], ["H.G. Wells", 2], ["Aldous Huxley", 2], ["Ken Follett", 2],
-        ["Stephen King", 2], ["Dan Brown", 1], ["Agatha Christie", 1], ["Primo Levi", 1],
-        ["Ernest Hemingway", 1], ["Gabriel García Márquez", 1], ["Franz Kafka", 1]
-      ],
-      top_genres: [
-        ["Fantascienza", 112], ["Fantasy", 78], ["Thriller", 45], 
-        ["Storia", 32], ["Filosofia", 25], ["Biografia", 20]
-      ],
-      rating_distribution: { 1: 3, 2: 12, 3: 45, 4: 138, 5: 114 }
-    });
+    res.status(503).json({ error: 'Server Calibre non raggiungibile', details: error.message });
   }
 });
 
@@ -576,6 +544,11 @@ app.get('/', (req, res) => {
 // Endpoint per trigger manuale sync
 app.post('/api/sync', async (req, res) => {
   try {
+    if (!process.env.DATABASE_URL && !process.env.CALIBRE_DB_PATH) {
+      const books = await refreshCalibreBooks();
+      return res.json({ success: true, updated_books: books.length });
+    }
+
     const { fetchBooksFromCalibre, updateReadBooks } = require('./sync-worker');
     const books = await fetchBooksFromCalibre();
     const readBooks = books.filter(book => 
@@ -635,17 +608,14 @@ app.get(/^\/cover\/(.*)$/, async (req, res) => {
   }
 
   const CALIBRE_URL = process.env.CALIBRE_URL || 'http://192.168.1.5:8090';
-  const CALIBRE_USERNAME = process.env.CALIBRE_USERNAME || '';
-  const CALIBRE_PASSWORD = process.env.CALIBRE_PASSWORD || '';
-  
-  const url = `${CALIBRE_URL}/${coverPath}`;
+
+  const url = new URL(
+    coverPath.replace(/^\/+/, ''),
+    `${CALIBRE_URL.replace(/\/+$/, '')}/`
+  ).href;
   
   try {
-    const response = await axios.get(url, {
-      auth: {
-        username: CALIBRE_USERNAME,
-        password: CALIBRE_PASSWORD
-      },
+    const response = await getCalibreResponse(url, {
       responseType: 'stream',
       timeout: 10000
     });
@@ -660,11 +630,31 @@ app.get(/^\/cover\/(.*)$/, async (req, res) => {
 });
 
 function startServer() {
-  app.listen(PORT, () => {
-    console.log('');
-    console.log(`✅ Server Calibre Dashboard avviato su http://localhost:${PORT}`);
-    console.log(`🔗 Connesso a server Calibre: ${process.env.CALIBRE_URL || 'http://localhost:8090'}`);
-    console.log('');
+  initializeDatabase().then((connected) => {
+    if (!connected && (process.env.CALIBRE_DB_PATH || process.env.DATABASE_URL)) {
+      throw new Error('Impossibile inizializzare il database configurato');
+    }
+
+    if (connected) console.log('✅ Sorgente dati inizializzata');
+    else console.warn('⚠️ Dashboard avviata senza dati: verifica URL e credenziali del server Calibre');
+
+    if (connected && process.env.CALIBRE_DB_PATH) {
+      console.log('📚 Lettura diretta dal database SQLite di Calibre attiva');
+    } else if (connected && !process.env.DATABASE_URL) {
+      console.log('📚 Lettura diretta dal server Calibre via HTTP attiva');
+    } else if (connected) {
+      startSyncWorker();
+    }
+
+    app.listen(PORT, () => {
+      console.log('');
+      console.log(`✅ Server Calibre Dashboard avviato su http://localhost:${PORT}`);
+      console.log(`🔗 Connesso a server Calibre: ${process.env.CALIBRE_URL || 'http://localhost:8090'}`);
+      console.log('');
+    });
+  }).catch(error => {
+    console.error('❌ Errore inizializzazione:', error.message);
+    process.exitCode = 1;
   });
 }
 

@@ -38,6 +38,7 @@ const booksQuery = `
         r.rating,
         c1.value AS status,
         c5.value AS read_at,
+        cc9.value AS reading_order,
         cc7.value AS page_count
     FROM books b
     JOIN books_custom_column_1_link status_link ON b.id = status_link.book
@@ -55,6 +56,7 @@ const booksQuery = `
     LEFT JOIN books_ratings_link br ON b.id = br.book
     LEFT JOIN ratings r ON br.rating = r.id
     LEFT JOIN custom_column_5 c5 ON b.id = c5.book
+    LEFT JOIN custom_column_9 cc9 ON b.id = cc9.book
     LEFT JOIN custom_column_7 cc7 ON b.id = cc7.book
     WHERE c1.value = 'Finito'
     GROUP BY b.id
@@ -84,6 +86,7 @@ function mapBook(row) {
         cover_url: row.has_cover ? `/cover/${row.id}` : null,
         last_modified: row.last_modified || null,
         read_at: row.read_at || null,
+        reading_order: row.reading_order || null,
         status: row.status,
         rating: row.rating ? Math.round(row.rating / 2) : null,
         identifiers

@@ -230,6 +230,7 @@
                     <thead class="sticky top-0 bg-gradient-to-r from-primary-50 to-accent-50 border-b-2 border-primary-200">
                         <tr>
                             <th class="px-4 py-3 text-left font-semibold text-slate-700">Titolo</th>
+                            <th class="px-4 py-3 text-center font-semibold text-slate-700 w-16">OrdLett</th>
                             <th class="px-4 py-3 text-left font-semibold text-slate-700">Autore</th>
                             <th class="px-4 py-3 text-center font-semibold text-slate-700 w-20">Data</th>
                             <th class="px-4 py-3 text-center font-semibold text-slate-700 w-16">⭐</th>
@@ -704,10 +705,12 @@
                     const authorDisplay = getAuthorDisplayName(book.authors);
                     const readDate = formatDate(book.read_at);
                     const rating = book.rating ? book.rating : '—';
+                    const orderDisplay = book.reading_order != null && book.reading_order > 0 ? book.reading_order : '—';
                     
                     row.innerHTML = `
                         <td class="px-4 py-3 font-medium text-slate-800">${book.title}</td>
                         <td class="px-4 py-3 text-slate-600">${authorDisplay}</td>
+                        <td class="px-4 py-3 text-center text-sm text-slate-600">${orderDisplay}</td>
                         <td class="px-4 py-3 text-center text-sm text-slate-600">${readDate}</td>
                         <td class="px-4 py-3 text-center text-sm text-yellow-500">${rating}</td>
                     `;
@@ -802,13 +805,14 @@
                     return [
                         book.title,
                         getAuthorDisplayName(book.authors),
+                        book.reading_order != null && book.reading_order > 0 ? book.reading_order : '',
                         formatDate(book.read_at),
                         book.rating || '',
                         (book.description || '').slice(0, 100)
                     ];
                 });
 
-                exportToCSV(data, `calibre-libri-${new Date().toISOString().slice(0, 10)}.csv`, ['Titolo', 'Autore', 'Data Lettura', 'Rating', 'Descrizione']);
+                exportToCSV(data, `calibre-libri-${new Date().toISOString().slice(0, 10)}.csv`, ['Ordine', 'Autore', 'Titolo', 'Data Lettura', 'Rating', 'Descrizione']);
             });
 
             exportAuthorsBtn.addEventListener('click', () => {

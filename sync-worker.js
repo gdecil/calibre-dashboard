@@ -1,20 +1,7 @@
-const axios = require('axios');
+require('dotenv').config();
 const cron = require('node-cron');
 const { initializeDatabase, backupDatabase, cleanupOldBackups, upsertBook } = require('./database');
-require('dotenv').config();
-
-// URL del server Calibre
-const CALIBRE_URL = process.env.CALIBRE_URL || 'http://localhost:8090';
-
-// Credenziali Calibre
-const CALIBRE_USERNAME = process.env.CALIBRE_USERNAME || 'gdecil';
-const CALIBRE_PASSWORD = process.env.CALIBRE_PASSWORD || '';
-
-// Crea header di autenticazione
-const authHeader = {
-    username: CALIBRE_USERNAME,
-    password: CALIBRE_PASSWORD
-};
+const { fetchBooksFromCalibre } = require('./services/calibre-opds');
 
 // Funzione per sincronizzazione manuale
 async function manualSync() {
@@ -62,143 +49,6 @@ async function manualSync() {
 //     timezone: 'Europe/Rome'
 // });
 
-// Fetch libri dal server Calibre usando API OPDS
-async function fetchBooksFromCalibre() {
-    try {
-        console.log('📥 Recupero libri da Calibre tramite OPDS...');
-
-        // Crea header di autenticazione Basic Auth
-        const authConfig = {
-            auth: {
-                username: CALIBRE_USERNAME,
-                password: CALIBRE_PASSWORD
-            },
-            timeout: 30000,
-            headers: { 'Accept': 'application/atom+xml' }
-        };
-
-        // Prima otteniamo l'elenco dei libri letti (status "Finito")
-        const response = await axios.get(`${CALIBRE_URL}/opds/category/23737461747573/49323a23737461747573?library_id=biblioteca`, authConfig);
-
-        // Parsing del feed OPDS per trovare il link ai libri "Finito"
-        const parseString = require('xml2js').parseString;
-        let finishedBooksUrl = null;
-
-        await new Promise((resolve, reject) => {
-            parseString(response.data, (err, result) => {
-                if (err) {
-                    console.error('❌ Errore parsing XML:', err.message);
-                    reject(err);
-                    return;
-                }
-
-                // Cerca l'entry con titolo "Finito"
-                const entries = result.feed.entry || [];
-                for (const entry of entries) {
-                    const title = entry.title?.[0];
-                    if (title === 'Finito') {
-                        const links = entry.link || [];
-                        for (const link of links) {
-                            if (link.$ && link.$.rel === 'http://opds-spec.org/acquisition') {
-                                finishedBooksUrl = link.$.href;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                }
-
-                if (!finishedBooksUrl) {
-                    console.error('❌ Impossibile trovare URL libri finiti');
-                    reject(new Error('URL libri finiti non trovato'));
-                    return;
-                }
-
-                resolve();
-            });
-        });
-
-        // Ora otteniamo i libri effettivi dal feed dei libri finiti
-        const booksResponse = await axios.get(`${CALIBRE_URL}${finishedBooksUrl}`, authConfig);
-
-        // Parsing dei libri dal feed OPDS
-        const books = [];
-        await new Promise((resolve, reject) => {
-            parseString(booksResponse.data, (err, result) => {
-                if (err) {
-                    console.error('❌ Errore parsing XML libri:', err.message);
-                    reject(err);
-                    return;
-                }
-
-                const entries = result.feed.entry || [];
-                for (const entry of entries) {
-                    try {
-                        const book = {
-                            uuid: entry.id?.[0]?.replace('urn:uuid:', '') || null,
-                            title: entry.title?.[0] || 'Sconosciuto',
-                            authors: entry.author?.[0]?.name?.[0] || 'Sconosciuto',
-                            pubdate: entry['dc:date']?.[0] || null,
-                            last_modified: entry.updated?.[0] || null,
-                            user_metadata: {
-                                '#read': { value: true },
-                                '#rating': { value: null }
-                            },
-                            tags: [],
-                            publisher: null,
-                            identifiers: {},
-                            languages: []
-                        };
-
-// Estraiamo informazioni dal content
-const content = entry.content?.[0] || '';
-if (content) {
-    // Parsing delle informazioni dal content XHTML usando regex direttamente
-    const contentStr = content.toString();
-
-    // Estraiamo i tag
-    const tagMatch = contentStr.match(/TAG: ([^\n]+)/);
-    if (tagMatch) {
-        book.tags = tagMatch[1].split(', ').map(tag => tag.trim());
-    }
-
-    // Estraiamo il publisher se presente
-    const publisherMatch = contentStr.match(/Editore: ([^\n]+)/);
-    if (publisherMatch) {
-        book.publisher = publisherMatch[1].trim();
-    }
-
-    // Estraiamo la lingua se presente
-    const languageMatch = contentStr.match(/Lingua: ([^\n]+)/);
-    if (languageMatch) {
-        book.languages = [languageMatch[1].trim()];
-    }
-
-    // Estraiamo il rating se presente
-    const ratingMatch = contentStr.match(/Valutazione: (\d+)/);
-    if (ratingMatch) {
-        book.user_metadata['#rating'] = { value: parseInt(ratingMatch[1]) };
-    }
-}
-
-                        books.push(book);
-                    } catch (error) {
-                        console.error('❌ Errore parsing libro:', error.message);
-                        // Continua con il prossimo libro
-                    }
-                }
-
-                resolve();
-            });
-        });
-
-        return books;
-    } catch (error) {
-        console.error('❌ Impossibile raggiungere server Calibre:', error.message);
-        throw error;
-    }
-}
-
 // Aggiorna libri letti nel database
 async function updateReadBooks(books) {
     try {
@@ -207,14 +57,15 @@ async function updateReadBooks(books) {
             const bookData = {
                 id: book.uuid,
                 title: book.title,
-                authors: book.authors, // Già in formato JSON stringa
-                tags: book.tags, // Già in formato JSON stringa
+                authors: book.authors,
+                tags: book.tags,
                 publisher: book.publisher,
                 published_date: book.pubdate,
                 isbn: book.identifiers?.isbn,
                 language: book.languages?.[0],
                 last_modified: book.last_modified,
-                rating: book.user_metadata['#rating']?.value || null
+                rating: book.user_metadata['#rating']?.value || null,
+                reading_order: book.reading_order
             };
             await upsertBook(bookData);
         }

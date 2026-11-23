@@ -24,7 +24,18 @@ pool.query(migrationSql, (error, result) => {
             process.exit(1);
         }
         console.log('✅ Migrazione step2 con successo');
-        process.exit(0);
+        // Migrazione 003: campo ordine di lettura (OrdLett)
+        const migrationFile2 = path.join(__dirname, 'migrations', '003_add_reading_order.sql');
+        const migrationSql2 = fs.readFileSync(migrationFile2, 'utf8');
+
+        pool.query(migrationSql2, (error, result) => {
+            if (error) {
+                console.error('❌ Errore migrazione:', error.message);
+                process.exit(1);
+            }
+            console.log('✅ Migrazione step3 con successo');
+            process.exit(0);
+        });
     });
 });
 

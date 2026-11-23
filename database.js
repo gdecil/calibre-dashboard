@@ -2,9 +2,13 @@ const { Pool } = require('pg');
 require('dotenv').config();
 const useCalibreSqlite = Boolean(process.env.CALIBRE_DB_PATH);
 const calibreDatabase = useCalibreSqlite ? require('./calibre-database') : null;
+const useCalibreHttp = !useCalibreSqlite && !process.env.DATABASE_URL;
+const calibreHttpDatabase = useCalibreHttp ? require('./calibre-http-database') : null;
 
 function getCoverPath(bookId) {
-    return useCalibreSqlite ? calibreDatabase.getCoverPath(bookId) : null;
+    if (useCalibreSqlite) return calibreDatabase.getCoverPath(bookId);
+    if (useCalibreHttp) return calibreHttpDatabase.getCoverPath(bookId);
+    return null;
 }
 
 const pool = new Pool({
@@ -19,18 +23,28 @@ async function initializeDatabase() {
             calibreDatabase.initializeDatabase();
             return true;
         }
+        if (useCalibreHttp) {
+            return await calibreHttpDatabase.initializeDatabase();
+        }
 
         await pool.query('SELECT 1');
         console.log('✅ Connessione al database stabilita');
         return true;
     } catch (error) {
-        console.error('❌ Errore connessione database:', error.message);
+        console.error('❌ Errore inizializzazione dati:', error.message);
         return false;
     }
 }
 
 // Test connessione database
 function testDatabaseConnection() {
+    if (useCalibreSqlite || useCalibreHttp) {
+        return initializeDatabase().catch(error => {
+            console.error('❌ Errore inizializzazione dati:', error.message);
+            return false;
+        });
+    }
+
     return new Promise((resolve, reject) => {
         pool.query('SELECT 1', (error, result) => {
             if (error) {
@@ -101,6 +115,7 @@ async function cleanupOldBackups() {
 async function getReadBooks() {
     try {
         if (useCalibreSqlite) return calibreDatabase.getReadBooks();
+        if (useCalibreHttp) return calibreHttpDatabase.getReadBooks();
 
         const query = `
             SELECT * FROM read_books
@@ -118,6 +133,7 @@ async function getReadBooks() {
 async function getStats() {
     try {
         if (useCalibreSqlite) return calibreDatabase.getStats();
+        if (useCalibreHttp) return calibreHttpDatabase.getStats();
 
         const [totalQuery, readQuery, topAuthorsQuery, topGenresQuery, ratingsQuery, authorsCountQuery] = await Promise.all([
             pool.query('SELECT COUNT(*) as total FROM read_books'),
@@ -179,9 +195,13 @@ async function getStats() {
 // Aggiungi/aggiorna libro
 async function upsertBook(book) {
     try {
+        if (useCalibreHttp) {
+            throw new Error('La modalità HTTP Calibre è in sola lettura');
+        }
+
         const query = `
-            INSERT INTO read_books (id, title, authors, tags, publisher, published_date, isbn, language, last_modified, rating)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO read_books (id, title, authors, tags, publisher, published_date, isbn, language, last_modified, rating, reading_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (id)
             DO UPDATE SET
                 title = EXCLUDED.title,
@@ -193,6 +213,7 @@ async function upsertBook(book) {
                 language = EXCLUDED.language,
                 last_modified = EXCLUDED.last_modified,
                 rating = EXCLUDED.rating,
+                reading_order = EXCLUDED.reading_order,
                 updated_at = NOW()
             WHERE read_books.last_modified IS NULL
                OR read_books.last_modified < EXCLUDED.last_modified
@@ -207,7 +228,8 @@ async function upsertBook(book) {
             book.isbn,
             book.language,
             book.last_modified,
-            book.rating
+            book.rating,
+            book.reading_order
         ]);
     } catch (error) {
         console.error('❌ Errore upsert libro:', error.message);
@@ -219,6 +241,7 @@ async function upsertBook(book) {
 async function searchBooks(query) {
     try {
         if (useCalibreSqlite) return calibreDatabase.searchBooks(query);
+        if (useCalibreHttp) return calibreHttpDatabase.searchBooks(query);
 
         const searchQuery = `
             SELECT * FROM read_books
@@ -239,6 +262,7 @@ async function searchBooks(query) {
 async function getAdvancedStats() {
     try {
         if (useCalibreSqlite) return calibreDatabase.getAdvancedStats();
+        if (useCalibreHttp) return calibreHttpDatabase.getAdvancedStats();
 
         const [ratingDistQuery, yearDistQuery, languageDistQuery, genreDistQuery] = await Promise.all([
             pool.query(`
@@ -285,8 +309,16 @@ async function getAdvancedStats() {
     }
 }
 
+async function refreshCalibreBooks() {
+    if (!useCalibreHttp) {
+        throw new Error("L'aggiornamento HTTP è disponibile solo senza PostgreSQL o SQLite locale");
+    }
+    return calibreHttpDatabase.refreshBooks();
+}
+
 module.exports = {
     initializeDatabase,
+    refreshCalibreBooks,
     backupDatabase,
     cleanupOldBackups,
     getReadBooks,

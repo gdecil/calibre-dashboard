@@ -33,6 +33,12 @@ function parseDescription(content) {
     return match[1].replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 }
 
+function parseOrdLett(content) {
+    const match = content.match(/OrdLett:\s*(\d+)/i);
+    if (!match) return null;
+    return parseInt(match[1], 10);
+}
+
 /**
  * PHASE 1: Valida e stabilisci connessioni
  */
@@ -159,6 +165,7 @@ async function fetchBooksFromCalibre() {
                     pubdate: entry['dc:date'] || null,
                     last_modified: entry.updated || null,
                     read_at: null,
+                    reading_order: null,
                     description: null,
                     cover_url: null,
                     user_metadata: {
@@ -185,6 +192,11 @@ async function fetchBooksFromCalibre() {
                     const terminato = parseTerminato(contentStr);
                     if (terminato) {
                         book.read_at = terminato;
+                    }
+
+                    const ordLett = parseOrdLett(contentStr);
+                    if (ordLett) {
+                        book.reading_order = ordLett;
                     }
 
                     const description = parseDescription(contentStr);
@@ -248,8 +260,8 @@ async function fetchBooksFromCalibre() {
 async function upsertBookDirect(book) {
     try {
         const query = `
-            INSERT INTO read_books (id, title, authors, tags, publisher, published_date, isbn, language, last_modified, read_at, description, cover_url, rating, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+            INSERT INTO read_books (id, title, authors, tags, publisher, published_date, isbn, language, last_modified, read_at, reading_order, description, cover_url, rating, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
             ON CONFLICT (id)
             DO UPDATE SET
                 title = EXCLUDED.title,
@@ -261,6 +273,7 @@ async function upsertBookDirect(book) {
                 language = EXCLUDED.language,
                 last_modified = EXCLUDED.last_modified,
                 read_at = COALESCE(EXCLUDED.read_at, read_books.read_at),
+                reading_order = EXCLUDED.reading_order,
                 description = COALESCE(EXCLUDED.description, read_books.description),
                 cover_url = COALESCE(EXCLUDED.cover_url, read_books.cover_url),
                 rating = EXCLUDED.rating,
@@ -277,6 +290,7 @@ async function upsertBookDirect(book) {
             book.language || null,
             book.last_modified,
             book.read_at,
+            book.reading_order,
             book.description || null,
             book.cover_url || null,
             book.rating

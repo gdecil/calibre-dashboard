@@ -24,13 +24,18 @@ A web dashboard for managing and visualizing your Calibre ebook library.
    npm install
    ```
 
-3. Configure the direct Calibre SQLite database in `.env`:
+3. Configure the Calibre connection in `.env` (copy `.env.example` as a starting point).
+   To read completed books directly from a Calibre server over the network
+   (no PostgreSQL required):
    ```
-   CALIBRE_DB_PATH=H:\\biblioteca\\metadata.db
+   CALIBRE_URL=http://localhost:8090
    ```
+   If the server requires authentication, also set `CALIBRE_USERNAME` and
+   `CALIBRE_PASSWORD` in `.env`.
 
-   The dashboard reads books with status `Finito` directly from Calibre's
-   `metadata.db`. PostgreSQL remains available for optional enrichment data.
+   Alternatively, set `CALIBRE_DB_PATH` to the path of Calibre's `metadata.db`
+   to read the library directly. `DATABASE_URL` is only needed when using the
+   PostgreSQL-backed sync mode.
 
 4. Start the server:
    ```bash
