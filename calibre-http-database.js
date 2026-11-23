@@ -1,10 +1,15 @@
-const { fetchBooksFromCalibre } = require('./services/calibre-opds');
+const {
+    fetchBooksFromCalibre,
+    fetchCalibreBookMetadata
+} = require('./services/calibre-opds');
 
 let books = null;
+const descriptionRequests = new Map();
 
 function mapBook(book) {
     return {
         id: book.uuid,
+        calibre_id: book.id,
         title: book.title,
         authors: book.authors,
         tags: book.tags,
@@ -27,7 +32,35 @@ function mapBook(book) {
 async function refreshBooks() {
     const fetchedBooks = await fetchBooksFromCalibre();
     books = fetchedBooks.map(mapBook);
+    descriptionRequests.clear();
     return books;
+}
+
+async function getBookDescription(bookId) {
+    const id = String(bookId || '');
+    if (!/^\d+$/.test(id)) throw new Error('ID libro Calibre non valido');
+
+    const book = getReadBooks().find(item => String(item.calibre_id) === id);
+    if (!book) throw new Error('Libro non trovato nel catalogo Calibre');
+    if (book.description) return book.description;
+
+    if (!descriptionRequests.has(id)) {
+        const request = fetchCalibreBookMetadata(id)
+            .then(metadata => {
+                const description = metadata?.comments ?? metadata?.description ?? null;
+                book.description = typeof description === 'string' && description.trim()
+                    ? description
+                    : null;
+                return book.description;
+            })
+            .catch(error => {
+                descriptionRequests.delete(id);
+                throw error;
+            });
+        descriptionRequests.set(id, request);
+    }
+
+    return descriptionRequests.get(id);
 }
 
 function getReadBooks() {
@@ -102,6 +135,7 @@ module.exports = {
     initializeDatabase,
     refreshBooks,
     getReadBooks,
+    getBookDescription,
     getStats,
     getAdvancedStats,
     searchBooks,

@@ -10,6 +10,7 @@ A web dashboard for managing and visualizing your Calibre ebook library.
 - Export reading statistics
 - OPDS feed support
 - Google Books and Open Library enrichment
+- Reading order (Calibre `OrdLett`) shown and sortable in the books list
 
 ## Installation
 
@@ -50,6 +51,7 @@ Access the dashboard at `http://localhost:3000` in your web browser.
 
 - `GET /api/books` - Retrieve all books
 - `GET /api/books/search?q=term` - Search books
+- `GET /api/books/:id/description` - Load a missing description from Calibre metadata
 - `GET /api/stats` - Get reading statistics
 - `GET /opds` - OPDS feed
 - `GET /api/ai/search?q=...` - Semantic search grouped by book

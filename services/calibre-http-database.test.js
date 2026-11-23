@@ -46,6 +46,7 @@ test('loads books directly over HTTP without a PostgreSQL URL', async () => {
           </entry>
         </feed>
     `;
+    let metadataRequests = 0;
     const server = http.createServer((request, response) => {
         response.setHeader('Connection', 'close');
         response.setHeader('Content-Type', 'application/atom+xml');
@@ -84,6 +85,10 @@ test('loads books directly over HTTP without a PostgreSQL URL', async () => {
             response.end(catalog);
         } else if (request.url === '/read') {
             response.end(booksFeed);
+        } else if (request.url.startsWith('/interface-data/book-metadata/')) {
+            metadataRequests++;
+            response.setHeader('Content-Type', 'application/json');
+            response.end(JSON.stringify({ comments: '<p>Descrizione di prova</p>' }));
         } else {
             response.statusCode = 404;
             response.end();
@@ -108,6 +113,12 @@ test('loads books directly over HTTP without a PostgreSQL URL', async () => {
         assert.ok(books.length > 0);
         assert.ok(books[0].id);
         assert.equal((await database.getStats()).read_books, books.length);
+        const target = books.find(book => book.calibre_id === '23714');
+        assert.ok(target);
+        assert.equal(await database.getBookDescription(target.calibre_id), '<p>Descrizione di prova</p>');
+        assert.equal(metadataRequests, 1);
+        assert.equal(await database.getBookDescription(target.calibre_id), '<p>Descrizione di prova</p>');
+        assert.equal(metadataRequests, 1);
     } finally {
         await new Promise(resolve => server.close(resolve));
         delete require.cache[require.resolve('../database')];

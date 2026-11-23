@@ -99,6 +99,58 @@ function getNodeText(node) {
         .join('\n');
 }
 
+// xml2js trasforma <p class="description">...text...</p> in una struttura ad albero
+// (l'attributo diviene un attributo di nodo), quindi la descrizione non e reperibile
+// con espressioni regolari sul testo: bisogna cercare ricorsivamente l'albero parsed
+// e trovare l'elemento <p> con class="description".
+function walkParsed(node, visitNode) {
+    if (Array.isArray(node)) {
+        for (const item of node) walkParsed(item, visitNode);
+        return;
+    }
+    if (!node || typeof node !== 'object') return;
+    // visita il nodo stesso per leggere i suoi attributi (es. class="description")
+    visitNode(node);
+    for (const [key, value] of Object.entries(node)) {
+        if (key === '$') continue;
+        if (Array.isArray(value)) {
+            for (const v of value) walkParsed(v, visitNode);
+        } else {
+            walkParsed(value, visitNode);
+        }
+    }
+}
+
+function extractDescriptionNode(content) {
+    if (typeof content !== 'object') return null;
+    let found = null;
+    walkParsed(content, candidate => {
+        if (found) return;
+        const $ = candidate.$ || {};
+        if (typeof $['class'] === 'string' && $['class'].toLowerCase().includes('description')) {
+            // xml2js trasforma <p class="description">...text...</p> in una struttura ad albero
+            // (l'attributo diviene un attributo di nodo), quindi la descrizione non e reperibile
+            // con espressioni regolari sul testo: bisogna cercare ricorsivamente l'albero parsed
+            // e trovare l'elemento <p> con class="description". getNodeText estrae solo il testo
+            // dei nodi (ignorando i tag), poi rimuoviamo l'eventuale prefisso di catalogo
+            // incollato all'inizio (es. "EmmeBooks 90", "Version 90566 - ...").
+            found = stripCatalogPrefix(getNodeText(candidate));
+        }
+    });
+    return found;
+}
+
+// Rimuove un eventuale prefisso di catalogo incollato all'inizio della descrizione.
+// Le feed OPDS (es. Scaffaleitalia, Cosmo Argento) incollano codici catalogo/edizione
+// davanti al testo reale della sinossi: "EmmeBooks 90Nelle giornate...", "Version 90566 - ...",
+// "Abstract", "Scaffaleitalia", "Cosmo Argento n° 280", "Il 14° libro...".
+// La regex scambia questi prefissi noti e non-prosaici, lasciando intatto il testo reale.
+function stripCatalogPrefix(description) {
+    if (typeof description !== 'string') return description || '';
+    const PREFIX = /^(Version [0-9]+(?: -.*|\. [^<]*)?|EmmeBooks [0-9]+|EDGT[0-9]+|Abstract|Scaffaleitalia|Cosmo Argento n[0-9°°]+|Ebook gratuito|Ebook [^<]*|Il [0-9]+ libro[^<]*|n[0-9]+°[^<]*|Sardegna[^<]*)[\r\n ]*/i;
+    return PREFIX.test(description) ? description.replace(PREFIX, '').trim() : description.trim();
+}
+
 function getLinks(entry) {
     const links = entry?.link || [];
     return Array.isArray(links) ? links : [links];
@@ -106,6 +158,20 @@ function getLinks(entry) {
 
 function getLink(entry, relation) {
     return getLinks(entry).find(link => link?.$?.rel === relation)?.$?.href || null;
+}
+
+// L'ID numerico di Calibre compare nei link di download (es. /get/epub/8966/biblioteca):
+//   <link ... rel="http://opds-spec.org/acquisition" href="/get/epub/8966/biblioteca"/>
+// ed e' quello che l'endpoint /api/books/:id/summary si aspetta (solo cifre, validato da /^\d+$/:).
+// L'UUID OPDS (entry.id) non e' un numero, quindi se serve un ID numerico si estrae da qui.
+function getCalibreNumericId(entry) {
+    if (entry?.calibre_id) return entry.calibre_id;
+    const acquisitionHref = getLink(entry, 'http://opds-spec.org/acquisition');
+    if (acquisitionHref) {
+        const match = acquisitionHref.match(/\/get\/[a-z]+\/(\d{2,8})\/[a-z]+/i);
+        if (match) return match[1];
+    }
+    return null;
 }
 
 function parseReadDate(content) {
@@ -132,8 +198,10 @@ function parseReadDate(content) {
 }
 
 function parseBook(entry) {
-    const content = getNodeText(entry.content);
+    const rawContent = entry.content;
+    const content = getNodeText(rawContent);
     const id = entry.id?.[0]?.replace(/^urn:uuid:/, '') || null;
+    const calibreNumericId = getCalibreNumericId(entry);
     const authors = (entry.author || [])
         .map(author => author.name?.[0])
         .filter(Boolean);
@@ -143,18 +211,20 @@ function parseBook(entry) {
     const ratingMatch = content.match(/Valutazione:\s*(\d+)/i);
     const pageCountMatch = content.match(/npages:\s*(\d+)/i);
     const readingOrderMatch = content.match(/OrdLett:\s*(\d+)/i);
+    const descriptionMatch = extractDescriptionNode(rawContent);
     const coverHref = getLink(entry, 'http://opds-spec.org/cover')
         || getLink(entry, 'http://opds-spec.org/image');
 
     return {
         uuid: id,
+        id: calibreNumericId,
         title: entry.title?.[0] || 'Sconosciuto',
         authors: authors.length ? authors : ['Sconosciuto'],
         tags: tagsMatch ? tagsMatch[1].split(',').map(tag => tag.trim()).filter(Boolean) : [],
         publisher: publisherMatch?.[1]?.trim() || null,
         published_date: entry['dc:date']?.[0] || entry.published?.[0] || null,
         isbn: null,
-        description: null,
+        description: descriptionMatch || null,
         page_count: pageCountMatch ? Number.parseInt(pageCountMatch[1], 10) : null,
         language: languageMatch?.[1]?.trim() || null,
         cover_url: coverHref ? `/cover/${coverHref.replace(/^\/+/, '')}` : null,
@@ -175,6 +245,20 @@ async function parseReadBooksFeed(xml) {
     const result = await parseStringPromise(xml);
     const entries = result.feed?.entry || [];
     return entries.map(parseBook);
+}
+
+async function fetchCalibreBookMetadata(bookId) {
+    const id = String(bookId || '');
+    if (!/^\d+$/.test(id)) throw new Error('ID libro Calibre non valido');
+
+    const baseUrl = new URL(process.env.CALIBRE_URL || 'http://localhost:8090');
+    const metadataUrl = new URL(`/interface-data/book-metadata/${id}`, baseUrl);
+    metadataUrl.searchParams.set('library_id', 'biblioteca');
+    const response = await getCalibreResponse(metadataUrl.href, {
+        timeout: 15000,
+        headers: { Accept: 'application/json' }
+    });
+    return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
 }
 
 async function fetchBooksFromCalibre() {
@@ -226,5 +310,6 @@ async function fetchBooksFromCalibre() {
 module.exports = {
     fetchBooksFromCalibre,
     parseReadBooksFeed,
+    fetchCalibreBookMetadata,
     getCalibreResponse
 };

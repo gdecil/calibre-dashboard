@@ -129,6 +129,20 @@ async function getReadBooks() {
     }
 }
 
+async function getBookDescription(bookId) {
+    if (useCalibreHttp) return calibreHttpDatabase.getBookDescription(bookId);
+    if (useCalibreSqlite) {
+        const book = calibreDatabase.getReadBooks().find(item => String(item.id) === String(bookId));
+        return book?.description || null;
+    }
+
+    const result = await pool.query(
+        'SELECT description FROM read_books WHERE id = $1',
+        [bookId]
+    );
+    return result.rows[0]?.description || null;
+}
+
 // Ottieni statistiche
 async function getStats() {
     try {
@@ -322,6 +336,7 @@ module.exports = {
     backupDatabase,
     cleanupOldBackups,
     getReadBooks,
+    getBookDescription,
     getStats,
     getAdvancedStats,
     upsertBook,

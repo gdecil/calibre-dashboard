@@ -13,6 +13,7 @@ const {
   initializeDatabase,
   refreshCalibreBooks,
   getReadBooks,
+  getBookDescription,
   getStats,
   getAdvancedStats,
   searchBooks,
@@ -307,6 +308,24 @@ app.get('/api/books/:id/summary', (req, res) => {
     res.json({ summary: aiChatStore.getBookSummary(calibreBookId) });
   } catch (error) {
     res.status(500).json({ error: 'Riassunto libro non disponibile', details: error.message });
+  }
+});
+
+app.get('/api/books/:id/description', async (req, res) => {
+  const calibreBookId = String(req.params.id || '');
+  if (!/^\d+$/.test(calibreBookId)) {
+    return res.status(400).json({ error: 'ID libro non valido' });
+  }
+
+  try {
+    const description = await getBookDescription(calibreBookId);
+    res.json({ description });
+  } catch (error) {
+    console.error('Errore caricamento descrizione libro:', error.message);
+    res.status(502).json({
+      error: 'Descrizione libro non disponibile',
+      details: error.message
+    });
   }
 });
 
