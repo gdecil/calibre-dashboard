@@ -439,20 +439,12 @@
                 const summaryToken = ++bookSummaryLoadToken;
                 document.getElementById('modalTitle').textContent = book.title || 'Sconosciuto';
                 document.getElementById('modalAuthors').textContent = getAuthorDisplayName(book.authors) || 'Autore sconosciuto';
-                document.getElementById('modalPublisher').textContent = book.publisher || '—';
                 
                 const year = book.published_date ? new Date(book.published_date).getFullYear() : '—';
                 document.getElementById('modalYear').textContent = year;
                 
                 document.getElementById('modalLanguage').textContent = book.language || '—';
                 document.getElementById('modalReadDate').textContent = formatDate(book.read_at);
-                document.getElementById('modalISBN').textContent = book.isbn || '—';
-                
-                if (book.rating) {
-                    document.getElementById('modalRating').textContent = '⭐'.repeat(book.rating) + ` (${book.rating}/5)`;
-                } else {
-                    document.getElementById('modalRating').textContent = 'Non valutato';
-                }
 
                 // Tags
                 const tagsDiv = document.getElementById('modalTags');
@@ -497,15 +489,19 @@
                     }
                 }
 
-                // Descrizione
-                const descriptionElement = document.getElementById('modalDescription');
-                if (book.description?.trim()) {
-                    descriptionElement.textContent = descriptionToText(book.description);
-                } else if (book.calibre_id && /^\d+$/.test(String(book.calibre_id))) {
-                    descriptionElement.textContent = 'Caricamento descrizione...';
-                    loadBookDescription(book, summaryToken);
-                } else {
-                    descriptionElement.textContent = 'Nessuna descrizione disponibile';
+                const needsDetails = !book.description?.trim()
+                    || !book.publisher
+                    || !Number.isInteger(book.rating)
+                    || book.rating <= 0
+                    || !book.isbn;
+                renderBookDetails(book, needsDetails);
+                if (
+                    !book.details_loaded
+                    && needsDetails
+                    && book.calibre_id
+                    && /^\d+$/.test(String(book.calibre_id))
+                ) {
+                    loadBookDetails(book, summaryToken);
                 }
                 document.getElementById('bookSummaryStatus').textContent = 'Verifica riassunto salvato...';
                 document.getElementById('bookSummaryText').textContent = '';
@@ -525,21 +521,39 @@
                 return (parsed.body.textContent || '').trim();
             }
 
-            async function loadBookDescription(book, token) {
+            function renderBookDetails(book, loading = false) {
+                document.getElementById('modalPublisher').textContent = book.publisher || '—';
+                document.getElementById('modalISBN').textContent = book.isbn || '—';
+                document.getElementById('modalRating').textContent = Number.isInteger(book.rating) && book.rating > 0
+                    ? '⭐'.repeat(book.rating) + ` (${book.rating}/5)`
+                    : 'Non valutato';
+
+                document.getElementById('modalDescription').textContent = book.description?.trim()
+                    ? descriptionToText(book.description)
+                    : loading
+                        ? 'Caricamento dettagli...'
+                        : 'Nessuna descrizione disponibile';
+            }
+
+            async function loadBookDetails(book, token) {
                 try {
-                    const response = await fetch(`/api/books/${encodeURIComponent(book.calibre_id)}/description`);
+                    const response = await fetch(`/api/books/${encodeURIComponent(book.calibre_id)}/details`);
                     const data = await response.json();
-                    if (!response.ok) throw new Error(data.details || data.error || 'Descrizione non disponibile');
+                    if (!response.ok) throw new Error(data.details || data.error || 'Dettagli non disponibili');
                     if (token !== bookSummaryLoadToken || activeBookForSummary?.id !== book.id) return;
 
-                    book.description = data.description || null;
-                    document.getElementById('modalDescription').textContent = book.description
-                        ? descriptionToText(book.description)
-                        : 'Nessuna descrizione disponibile';
+                    book.description ||= data.description || null;
+                    book.publisher ||= data.publisher || null;
+                    if (!Number.isInteger(book.rating) || book.rating <= 0) {
+                        book.rating = data.rating ?? null;
+                    }
+                    book.isbn ||= data.isbn || null;
+                    book.details_loaded = true;
+                    renderBookDetails(book);
                 } catch (error) {
                     if (token !== bookSummaryLoadToken || activeBookForSummary?.id !== book.id) return;
-                    console.error('Errore caricamento descrizione libro:', error.message);
-                    document.getElementById('modalDescription').textContent = 'Descrizione non disponibile';
+                    console.error('Errore caricamento dettagli libro:', error.message);
+                    renderBookDetails(book);
                 }
             }
 

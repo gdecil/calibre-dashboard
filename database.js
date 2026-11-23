@@ -129,18 +129,29 @@ async function getReadBooks() {
     }
 }
 
-async function getBookDescription(bookId) {
-    if (useCalibreHttp) return calibreHttpDatabase.getBookDescription(bookId);
+async function getBookDetails(bookId) {
+    if (useCalibreHttp) return calibreHttpDatabase.getBookDetails(bookId);
     if (useCalibreSqlite) {
         const book = calibreDatabase.getReadBooks().find(item => String(item.id) === String(bookId));
-        return book?.description || null;
+        if (!book) return null;
+        return {
+            description: book.description,
+            publisher: book.publisher,
+            rating: book.rating,
+            isbn: book.isbn
+        };
     }
 
     const result = await pool.query(
-        'SELECT description FROM read_books WHERE id = $1',
+        'SELECT description, publisher, rating, isbn FROM read_books WHERE id = $1',
         [bookId]
     );
-    return result.rows[0]?.description || null;
+    return result.rows[0] || null;
+}
+
+async function getBookDescription(bookId) {
+    const details = await getBookDetails(bookId);
+    return details?.description || null;
 }
 
 // Ottieni statistiche
@@ -336,6 +347,7 @@ module.exports = {
     backupDatabase,
     cleanupOldBackups,
     getReadBooks,
+    getBookDetails,
     getBookDescription,
     getStats,
     getAdvancedStats,

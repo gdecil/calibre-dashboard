@@ -1,10 +1,12 @@
 const {
     fetchBooksFromCalibre,
-    fetchCalibreBookMetadata
+    fetchCalibreBookMetadata,
+    fetchCalibreBookCount
 } = require('./services/calibre-opds');
 
 let books = null;
-const descriptionRequests = new Map();
+let totalBooks = null;
+const detailsRequests = new Map();
 
 function mapBook(book) {
     return {
@@ -30,37 +32,64 @@ function mapBook(book) {
 }
 
 async function refreshBooks() {
-    const fetchedBooks = await fetchBooksFromCalibre();
+    const [fetchedBooks, fetchedTotalBooks] = await Promise.all([
+        fetchBooksFromCalibre(),
+        fetchCalibreBookCount()
+    ]);
     books = fetchedBooks.map(mapBook);
-    descriptionRequests.clear();
+    totalBooks = fetchedTotalBooks;
+    detailsRequests.clear();
     return books;
 }
 
-async function getBookDescription(bookId) {
+async function getBookDetails(bookId) {
     const id = String(bookId || '');
     if (!/^\d+$/.test(id)) throw new Error('ID libro Calibre non valido');
 
     const book = getReadBooks().find(item => String(item.calibre_id) === id);
     if (!book) throw new Error('Libro non trovato nel catalogo Calibre');
-    if (book.description) return book.description;
 
-    if (!descriptionRequests.has(id)) {
+    if (!detailsRequests.has(id)) {
         const request = fetchCalibreBookMetadata(id)
             .then(metadata => {
                 const description = metadata?.comments ?? metadata?.description ?? null;
-                book.description = typeof description === 'string' && description.trim()
+                const rating = Number(metadata?.rating);
+                const identifiers = metadata?.identifiers || {};
+                const isbn = identifiers.isbn ?? identifiers.ISBN ?? null;
+
+                book.description ||= typeof description === 'string' && description.trim()
                     ? description
                     : null;
-                return book.description;
+                book.publisher ||= typeof metadata?.publisher === 'string' && metadata.publisher.trim()
+                    ? metadata.publisher
+                    : null;
+                if (!Number.isFinite(book.rating) || book.rating <= 0) {
+                    book.rating = Number.isFinite(rating) && rating > 0
+                        ? Math.round(rating / 2)
+                        : null;
+                }
+                book.isbn ||= typeof isbn === 'string' && isbn.trim() ? isbn : null;
+
+                return {
+                    description: book.description,
+                    publisher: book.publisher,
+                    rating: book.rating,
+                    isbn: book.isbn
+                };
             })
             .catch(error => {
-                descriptionRequests.delete(id);
+                detailsRequests.delete(id);
                 throw error;
             });
-        descriptionRequests.set(id, request);
+        detailsRequests.set(id, request);
     }
 
-    return descriptionRequests.get(id);
+    return detailsRequests.get(id);
+}
+
+async function getBookDescription(bookId) {
+    const details = await getBookDetails(bookId);
+    return details.description;
 }
 
 function getReadBooks() {
@@ -94,9 +123,9 @@ function getStats() {
     }
 
     return {
-        total_books: readBooks.length,
+        total_books: totalBooks,
         read_books: readBooks.length,
-        percentage_read: readBooks.length ? 100 : 0,
+        percentage_read: totalBooks ? Math.round((readBooks.length / totalBooks) * 100) : 0,
         top_authors: authors.map(([author, count]) => [author, count, null]),
         top_genres: genres.map(([genre, count]) => [genre, count]),
         rating_distribution: ratingDistribution,
@@ -135,6 +164,7 @@ module.exports = {
     initializeDatabase,
     refreshBooks,
     getReadBooks,
+    getBookDetails,
     getBookDescription,
     getStats,
     getAdvancedStats,

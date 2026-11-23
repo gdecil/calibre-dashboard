@@ -81,14 +81,22 @@ test('loads books directly over HTTP without a PostgreSQL URL', async () => {
             return;
         }
 
-        if (request.url.startsWith('/opds/category/')) {
+        if (request.url.startsWith('/ajax/search?')) {
+            response.setHeader('Content-Type', 'application/json');
+            response.end(JSON.stringify({ total_num: 10604 }));
+        } else if (request.url.startsWith('/opds/category/')) {
             response.end(catalog);
         } else if (request.url === '/read') {
             response.end(booksFeed);
         } else if (request.url.startsWith('/interface-data/book-metadata/')) {
             metadataRequests++;
             response.setHeader('Content-Type', 'application/json');
-            response.end(JSON.stringify({ comments: '<p>Descrizione di prova</p>' }));
+            response.end(JSON.stringify({
+                comments: '<p>Descrizione di prova</p>',
+                publisher: 'Editore di prova',
+                rating: 8,
+                identifiers: { isbn: '1234567890123' }
+            }));
         } else {
             response.statusCode = 404;
             response.end();
@@ -112,12 +120,23 @@ test('loads books directly over HTTP without a PostgreSQL URL', async () => {
         const books = await database.getReadBooks();
         assert.ok(books.length > 0);
         assert.ok(books[0].id);
-        assert.equal((await database.getStats()).read_books, books.length);
+        const stats = await database.getStats();
+        assert.equal(stats.total_books, 10604);
+        assert.equal(stats.read_books, books.length);
+        assert.equal(stats.percentage_read, Math.round((books.length / 10604) * 100));
         const target = books.find(book => book.calibre_id === '23714');
         assert.ok(target);
-        assert.equal(await database.getBookDescription(target.calibre_id), '<p>Descrizione di prova</p>');
+        assert.deepEqual(await database.getBookDetails(target.calibre_id), {
+            description: '<p>Descrizione di prova</p>',
+            publisher: 'Editore di prova',
+            rating: 4,
+            isbn: '1234567890123'
+        });
         assert.equal(metadataRequests, 1);
         assert.equal(await database.getBookDescription(target.calibre_id), '<p>Descrizione di prova</p>');
+        assert.equal(target.publisher, 'Editore di prova');
+        assert.equal(target.rating, 4);
+        assert.equal(target.isbn, '1234567890123');
         assert.equal(metadataRequests, 1);
     } finally {
         await new Promise(resolve => server.close(resolve));

@@ -261,6 +261,23 @@ async function fetchCalibreBookMetadata(bookId) {
     return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
 }
 
+async function fetchCalibreBookCount() {
+    const baseUrl = new URL(process.env.CALIBRE_URL || 'http://localhost:8090');
+    const searchUrl = new URL('/ajax/search', baseUrl);
+    searchUrl.searchParams.set('query', '');
+    searchUrl.searchParams.set('library_id', 'biblioteca');
+
+    const response = await getCalibreResponse(searchUrl.href, {
+        timeout: 30000,
+        headers: { Accept: 'application/json' }
+    });
+    const total = Number(response.data?.total_num);
+    if (!Number.isInteger(total) || total < 0) {
+        throw new Error('Il server Calibre non ha restituito un conteggio totale valido');
+    }
+    return total;
+}
+
 async function fetchBooksFromCalibre() {
     const serverUrl = process.env.CALIBRE_URL || 'http://localhost:8090';
     const baseUrl = new URL(serverUrl);
@@ -311,5 +328,6 @@ module.exports = {
     fetchBooksFromCalibre,
     parseReadBooksFeed,
     fetchCalibreBookMetadata,
+    fetchCalibreBookCount,
     getCalibreResponse
 };

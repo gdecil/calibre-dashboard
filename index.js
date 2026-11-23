@@ -13,6 +13,7 @@ const {
   initializeDatabase,
   refreshCalibreBooks,
   getReadBooks,
+  getBookDetails,
   getBookDescription,
   getStats,
   getAdvancedStats,
@@ -324,6 +325,25 @@ app.get('/api/books/:id/description', async (req, res) => {
     console.error('Errore caricamento descrizione libro:', error.message);
     res.status(502).json({
       error: 'Descrizione libro non disponibile',
+      details: error.message
+    });
+  }
+});
+
+app.get('/api/books/:id/details', async (req, res) => {
+  const calibreBookId = String(req.params.id || '');
+  if (!/^\d+$/.test(calibreBookId)) {
+    return res.status(400).json({ error: 'ID libro non valido' });
+  }
+
+  try {
+    const details = await getBookDetails(calibreBookId);
+    if (!details) return res.status(404).json({ error: 'Libro non trovato' });
+    res.json(details);
+  } catch (error) {
+    console.error('Errore caricamento dettagli libro:', error.message);
+    res.status(502).json({
+      error: 'Dettagli libro non disponibili',
       details: error.message
     });
   }

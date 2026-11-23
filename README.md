@@ -51,6 +51,7 @@ Access the dashboard at `http://localhost:3000` in your web browser.
 
 - `GET /api/books` - Retrieve all books
 - `GET /api/books/search?q=term` - Search books
+- `GET /api/books/:id/details` - Load missing book metadata from Calibre on demand
 - `GET /api/books/:id/description` - Load a missing description from Calibre metadata
 - `GET /api/stats` - Get reading statistics
 - `GET /opds` - OPDS feed
