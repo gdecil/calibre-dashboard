@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { test } = require('node:test');
-const { parseReadBooksFeed } = require('./calibre-opds');
+const { fetchBooksFromCalibre, parseReadBooksFeed } = require('./calibre-opds');
 
 const booksFeed = fs.readFileSync(
     path.join(__dirname, '..', 'tmp', 'test', 'test-calibre-response.xml'),
@@ -28,6 +28,54 @@ test('parses book metadata from an OPDS feed', async () => {
         read_at: '2023-06-19',
         cover_url: '/cover/get/cover/23713/biblioteca'
     });
+});
+
+test('follows feed-level next links and includes books from every page', async () => {
+    const originalUrl = process.env.CALIBRE_URL;
+    const server = http.createServer((request, response) => {
+        response.setHeader('Content-Type', 'application/atom+xml');
+
+        if (request.url.startsWith('/opds/category/')) {
+            response.end(`
+                <feed xmlns="http://www.w3.org/2005/Atom">
+                  <link rel="next" href="/read/page/2"/>
+                  <entry>
+                    <title>Primo libro</title>
+                    <id>urn:uuid:first-book</id>
+                    <content type="text">Terminato: 1 gennaio 2024</content>
+                  </entry>
+                </feed>
+            `);
+        } else if (request.url === '/read/page/2') {
+            response.end(`
+                <feed xmlns="http://www.w3.org/2005/Atom">
+                  <entry>
+                    <title>Secondo libro</title>
+                    <id>urn:uuid:second-book</id>
+                    <content type="text">Terminato: 2 gennaio 2024</content>
+                  </entry>
+                </feed>
+            `);
+        } else {
+            response.statusCode = 404;
+            response.end();
+        }
+    });
+
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+
+    try {
+        process.env.CALIBRE_URL = `http://127.0.0.1:${port}`;
+        const books = await fetchBooksFromCalibre();
+
+        assert.equal(books.length, 2);
+        assert.deepEqual(books.map(book => book.title), ['Primo libro', 'Secondo libro']);
+    } finally {
+        await new Promise(resolve => server.close(resolve));
+        if (originalUrl === undefined) delete process.env.CALIBRE_URL;
+        else process.env.CALIBRE_URL = originalUrl;
+    }
 });
 
 test('loads books directly over HTTP without a PostgreSQL URL', async () => {

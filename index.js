@@ -12,6 +12,7 @@ delete require.cache[require.resolve('./database')];
 const {
   initializeDatabase,
   refreshCalibreBooks,
+  ensureFreshCalibreBooks,
   getReadBooks,
   getBookDetails,
   getBookDescription,
@@ -532,6 +533,7 @@ app.post('/api/ai/ask', async (req, res) => {
 
 app.get('/api/books', async (req, res) => {
   try {
+    await ensureFreshCalibreBooks();
     const books = await getReadBooks();
     res.json(books);
   } catch (error) {
@@ -545,6 +547,7 @@ app.get('/api/books', async (req, res) => {
 
 app.get('/api/books/read', async (req, res) => {
   try {
+    await ensureFreshCalibreBooks();
     const books = await getReadBooks();
     res.json(books);
   } catch (error) {
@@ -555,6 +558,7 @@ app.get('/api/books/read', async (req, res) => {
 
 app.get('/api/stats', async (req, res) => {
   try {
+    await ensureFreshCalibreBooks();
     const stats = await getStats();
     res.json(stats);
   } catch (error) {
@@ -565,6 +569,7 @@ app.get('/api/stats', async (req, res) => {
 
 app.get('/api/advanced-stats', async (req, res) => {
   try {
+    await ensureFreshCalibreBooks();
     const stats = await getAdvancedStats();
     res.json(stats);
   } catch (error) {
@@ -577,7 +582,26 @@ app.get('/api/advanced-stats', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-store');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.post('/api/refresh', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    if (!process.env.DATABASE_URL && !process.env.CALIBRE_DB_PATH) {
+      const books = await refreshCalibreBooks();
+      return res.json({ success: true, updated_books: books.length });
+    }
+    return res.json({ success: true, updated_books: null });
+  } catch (error) {
+    console.error('Errore refresh dati Calibre:', error.message);
+    res.status(503).json({
+      success: false,
+      error: 'Errore durante il refresh dei dati Calibre',
+      details: error.message
+    });
+  }
 });
 
 // Endpoint per trigger manuale sync

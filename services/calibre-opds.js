@@ -303,14 +303,15 @@ async function fetchBooksFromCalibre() {
     const catalog = await parseStringPromise(catalogXml);
     const catalogEntries = catalog.feed?.entry || [];
     const category = catalogEntries.find(entry => entry.title?.[0] === 'Finito');
-    let nextHref = getLink(category, 'http://opds-spec.org/acquisition');
+    // Per i feed Calibre moderni il link "next" è un elemento <link rel=next>
+    // a livello feed. Per i feed più vecchi (es. test mock) il link "next" è
+    // un acquisition link della voce "Finito". Entrambi i pattern vanno gestiti.
+    let nextHref = getLinks(catalog.feed).find(link => link?.$?.rel === 'next')?.$?.href || null;
+    if (!nextHref) nextHref = getLink(category, 'http://opds-spec.org/acquisition');
+    const hasRealEntries = catalogEntries.some(entry => entry.id?.[0]?.startsWith('urn:uuid:'));
     const books = [];
-
-    if (!nextHref && catalogEntries.some(entry => entry.id?.[0]?.startsWith('urn:uuid:'))) {
+    if (hasRealEntries) {
         books.push(...await parseReadBooksFeed(catalogXml));
-        nextHref = getLinks(catalog.feed).find(link => link?.$?.rel === 'next')?.$?.href || null;
-    } else if (!nextHref) {
-        throw new Error('Il feed OPDS Calibre non contiene la categoria "Finito"');
     }
 
     while (nextHref) {
@@ -319,6 +320,10 @@ async function fetchBooksFromCalibre() {
         books.push(...await parseReadBooksFeed(xml));
         const feed = await parseStringPromise(xml);
         nextHref = getLinks(feed.feed).find(link => link?.$?.rel === 'next')?.$?.href || null;
+    }
+
+    if (books.length === 0) {
+        throw new Error('Il feed OPDS Calibre non contiene libri letti');
     }
 
     return books;

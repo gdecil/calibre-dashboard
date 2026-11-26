@@ -7,6 +7,12 @@ const {
 let books = null;
 let totalBooks = null;
 const detailsRequests = new Map();
+let lastRefreshAt = 0;
+let refreshInFlight = null;
+const refreshIntervalMs = Math.max(
+    5000,
+    Number.parseInt(process.env.CALIBRE_REFRESH_INTERVAL_MS, 10) || 60000
+);
 
 function mapBook(book) {
     return {
@@ -31,15 +37,29 @@ function mapBook(book) {
     };
 }
 
-async function refreshBooks() {
-    const [fetchedBooks, fetchedTotalBooks] = await Promise.all([
+async function refreshBooks(force = true) {
+    if (!force && books && Date.now() - lastRefreshAt < refreshIntervalMs) {
+        return books;
+    }
+    if (refreshInFlight) return refreshInFlight;
+
+    refreshInFlight = Promise.all([
         fetchBooksFromCalibre(),
         fetchCalibreBookCount()
-    ]);
-    books = fetchedBooks.map(mapBook);
-    totalBooks = fetchedTotalBooks;
-    detailsRequests.clear();
-    return books;
+    ]).then(([fetchedBooks, fetchedTotalBooks]) => {
+        books = fetchedBooks.map(mapBook);
+        totalBooks = fetchedTotalBooks;
+        lastRefreshAt = Date.now();
+        detailsRequests.clear();
+        return books;
+    }).finally(() => {
+        refreshInFlight = null;
+    });
+    return refreshInFlight;
+}
+
+async function ensureFreshBooks() {
+    return refreshBooks(false);
 }
 
 async function getBookDetails(bookId) {
@@ -163,6 +183,7 @@ async function initializeDatabase() {
 module.exports = {
     initializeDatabase,
     refreshBooks,
+    ensureFreshBooks,
     getReadBooks,
     getBookDetails,
     getBookDescription,

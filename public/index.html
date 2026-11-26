@@ -979,8 +979,16 @@
 
             async function init() {
                 try {
+                    const refreshResponse = await fetch('/api/refresh', {
+                        method: 'POST',
+                        cache: 'no-store'
+                    });
+                    if (!refreshResponse.ok) {
+                        console.warn('Refresh dei dati Calibre non riuscito');
+                    }
+
                     // Carica statistiche e autori
-                    const statsResponse = await fetch('/api/stats');
+                    const statsResponse = await fetch('/api/stats', { cache: 'no-store' });
                     const stats = await statsResponse.json();
                     
                     authorsData = stats.top_authors || [];
@@ -990,7 +998,7 @@
                     renderAuthorsTable();
 
                     // Carica tutti i libri
-                    const booksResponse = await fetch('/api/books');
+                    const booksResponse = await fetch('/api/books', { cache: 'no-store' });
                     allBooks = await booksResponse.json();
                     filteredBooks = [...allBooks];
 
@@ -1050,7 +1058,7 @@
 
                     // Carica statistiche avanzate
                     try {
-                        const advStatsResponse = await fetch('/api/advanced-stats');
+                        const advStatsResponse = await fetch('/api/advanced-stats', { cache: 'no-store' });
                         advancedStats = await advStatsResponse.json();
                         renderAdvancedStats(advancedStats);
                     } catch (e) {

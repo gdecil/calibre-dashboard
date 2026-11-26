@@ -341,9 +341,16 @@ async function refreshCalibreBooks() {
     return calibreHttpDatabase.refreshBooks();
 }
 
+async function ensureFreshCalibreBooks() {
+    if (!useCalibreHttp) return false;
+    await calibreHttpDatabase.ensureFreshBooks();
+    return true;
+}
+
 module.exports = {
     initializeDatabase,
     refreshCalibreBooks,
+    ensureFreshCalibreBooks,
     backupDatabase,
     cleanupOldBackups,
     getReadBooks,
