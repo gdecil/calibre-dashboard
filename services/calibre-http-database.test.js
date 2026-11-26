@@ -141,7 +141,7 @@ test('loads books directly over HTTP without a PostgreSQL URL', async () => {
             response.setHeader('Content-Type', 'application/json');
             response.end(JSON.stringify({
                 comments: '<p>Descrizione di prova</p>',
-                publisher: 'Editore di prova',
+                publisher: metadataRequests === 1 ? 'Editore di prova' : 'Editore aggiornato',
                 rating: 8,
                 identifiers: { isbn: '1234567890123' }
             }));
@@ -172,6 +172,20 @@ test('loads books directly over HTTP without a PostgreSQL URL', async () => {
         assert.equal(stats.total_books, 10604);
         assert.equal(stats.read_books, books.length);
         assert.equal(stats.percentage_read, Math.round((books.length / 10604) * 100));
+        const latestReadByAuthor = new Map();
+        for (const book of books) {
+            if (!book.read_at) continue;
+            for (const author of book.authors) {
+                const currentDate = latestReadByAuthor.get(author);
+                if (!currentDate || new Date(book.read_at) > new Date(currentDate)) {
+                    latestReadByAuthor.set(author, book.read_at);
+                }
+            }
+        }
+        assert.ok(latestReadByAuthor.size > 0);
+        for (const [author, , lastReadDate] of stats.top_authors) {
+            assert.equal(lastReadDate, latestReadByAuthor.get(author) || null);
+        }
         const target = books.find(book => book.calibre_id === '23714');
         assert.ok(target);
         assert.deepEqual(await database.getBookDetails(target.calibre_id), {
@@ -181,11 +195,14 @@ test('loads books directly over HTTP without a PostgreSQL URL', async () => {
             isbn: '1234567890123'
         });
         assert.equal(metadataRequests, 1);
+        const refreshedDetails = await database.getBookDetails(target.calibre_id);
+        assert.equal(refreshedDetails.publisher, 'Editore aggiornato');
+        assert.equal(metadataRequests, 2);
         assert.equal(await database.getBookDescription(target.calibre_id), '<p>Descrizione di prova</p>');
-        assert.equal(target.publisher, 'Editore di prova');
+        assert.equal(target.publisher, 'Editore aggiornato');
         assert.equal(target.rating, 4);
         assert.equal(target.isbn, '1234567890123');
-        assert.equal(metadataRequests, 1);
+        assert.equal(metadataRequests, 3);
     } finally {
         await new Promise(resolve => server.close(resolve));
         delete require.cache[require.resolve('../database')];

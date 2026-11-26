@@ -77,18 +77,12 @@ async function getBookDetails(bookId) {
                 const identifiers = metadata?.identifiers || {};
                 const isbn = identifiers.isbn ?? identifiers.ISBN ?? null;
 
-                book.description ||= typeof description === 'string' && description.trim()
-                    ? description
-                    : null;
-                book.publisher ||= typeof metadata?.publisher === 'string' && metadata.publisher.trim()
-                    ? metadata.publisher
-                    : null;
-                if (!Number.isFinite(book.rating) || book.rating <= 0) {
-                    book.rating = Number.isFinite(rating) && rating > 0
-                        ? Math.round(rating / 2)
-                        : null;
+                if (typeof description === 'string' && description.trim()) book.description = description;
+                if (typeof metadata?.publisher === 'string' && metadata.publisher.trim()) {
+                    book.publisher = metadata.publisher;
                 }
-                book.isbn ||= typeof isbn === 'string' && isbn.trim() ? isbn : null;
+                if (Number.isFinite(rating) && rating > 0) book.rating = Math.round(rating / 2);
+                if (typeof isbn === 'string' && isbn.trim()) book.isbn = isbn;
 
                 return {
                     description: book.description,
@@ -97,9 +91,8 @@ async function getBookDetails(bookId) {
                     isbn: book.isbn
                 };
             })
-            .catch(error => {
+            .finally(() => {
                 detailsRequests.delete(id);
-                throw error;
             });
         detailsRequests.set(id, request);
     }
@@ -129,6 +122,7 @@ function countValues(values) {
 function getStats() {
     const readBooks = getReadBooks();
     const authors = countValues(readBooks.flatMap(book => book.authors || []));
+    const authorLastReadDates = new Map();
     const genres = countValues(readBooks.flatMap(book => book.tags || []));
     const years = countValues(readBooks
         .map(book => book.read_at && new Date(book.read_at).getFullYear())
@@ -137,6 +131,17 @@ function getStats() {
     const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
     for (const book of readBooks) {
+        if (book.read_at) {
+            for (const author of book.authors || []) {
+                const currentDate = authorLastReadDates.get(author);
+                const readTimestamp = Date.parse(book.read_at);
+                const currentTimestamp = Date.parse(currentDate || '');
+                if (Number.isFinite(readTimestamp)
+                    && (!Number.isFinite(currentTimestamp) || readTimestamp > currentTimestamp)) {
+                    authorLastReadDates.set(author, book.read_at);
+                }
+            }
+        }
         if (Number.isInteger(book.rating) && book.rating >= 1 && book.rating <= 5) {
             ratingDistribution[book.rating]++;
         }
@@ -146,7 +151,7 @@ function getStats() {
         total_books: totalBooks,
         read_books: readBooks.length,
         percentage_read: totalBooks ? Math.round((readBooks.length / totalBooks) * 100) : 0,
-        top_authors: authors.map(([author, count]) => [author, count, null]),
+        top_authors: authors.map(([author, count]) => [author, count, authorLastReadDates.get(author) || null]),
         top_genres: genres.map(([genre, count]) => [genre, count]),
         rating_distribution: ratingDistribution,
         total_authors: authors.length,

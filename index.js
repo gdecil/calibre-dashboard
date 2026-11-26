@@ -659,7 +659,7 @@ app.get(/^\/cover\/(.*)$/, async (req, res) => {
 
       return res.sendFile(filePath, {
         headers: {
-          'Cache-Control': 'public, max-age=3600'
+          'Cache-Control': 'no-store'
         }
       }, (error) => {
         if (error && !res.headersSent) res.status(error.statusCode || 500).send('Errore nel caricamento della copertina');
@@ -684,7 +684,7 @@ app.get(/^\/cover\/(.*)$/, async (req, res) => {
     });
     
     res.set('Content-Type', response.headers['content-type'] || 'image/jpeg');
-    res.set('Cache-Control', 'public, max-age=3600'); // Cache per 1 ora
+    res.set('Cache-Control', 'no-store');
     response.data.pipe(res);
   } catch (error) {
     console.error('❌ Errore proxy copertina:', error.message);

@@ -117,13 +117,25 @@ function getStats() {
     const books = getReadBooks();
     const totalBooks = database.prepare('SELECT COUNT(*) AS count FROM books').get().count;
     const authorCounts = new Map();
+    const authorLastReadDates = new Map();
     const tagCounts = new Map();
     const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     const years = new Map();
     const languages = new Map();
 
     for (const book of books) {
-        for (const author of book.authors) authorCounts.set(author, (authorCounts.get(author) || 0) + 1);
+        for (const author of book.authors) {
+            authorCounts.set(author, (authorCounts.get(author) || 0) + 1);
+            if (book.read_at) {
+                const currentDate = authorLastReadDates.get(author);
+                const readTimestamp = Date.parse(book.read_at);
+                const currentTimestamp = Date.parse(currentDate || '');
+                if (Number.isFinite(readTimestamp)
+                    && (!Number.isFinite(currentTimestamp) || readTimestamp > currentTimestamp)) {
+                    authorLastReadDates.set(author, book.read_at);
+                }
+            }
+        }
         for (const tag of book.tags) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
         if (book.rating >= 1 && book.rating <= 5) ratingDistribution[book.rating]++;
         if (book.read_at) {
@@ -141,7 +153,7 @@ function getStats() {
         total_books: totalBooks,
         read_books: books.length,
         percentage_read: totalBooks ? Math.round((books.length / totalBooks) * 100) : 0,
-        top_authors: ranked(authorCounts).map(([name, count]) => [name, count, null]),
+        top_authors: ranked(authorCounts).map(([name, count]) => [name, count, authorLastReadDates.get(name) || null]),
         top_genres: ranked(tagCounts).map(([name, count]) => [name, count]),
         rating_distribution: ratingDistribution,
         total_authors: authorCounts.size,
